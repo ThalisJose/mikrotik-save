@@ -92,8 +92,15 @@ docker compose run --rm -e INVENTORY_MODE=netbox -e TARGET=all mikrotik-backup r
 docker compose up -d
 ```
 
-O container fica com `cron` em foreground e dispara `run_backup.sh` todo dia às
-23:00 (`scripts/crontab`) com `INVENTORY_MODE=netbox TARGET=all`.
+O container fica com `cron` em foreground e dispara `run_backup.sh` no horário
+definido por `CRON_SCHEDULE` no `.env` (padrão `0 23 * * *`, todo dia às 23:00),
+com `INVENTORY_MODE=netbox TARGET=all`. O crontab é gerado no `entrypoint.sh` a
+cada início de container — para mudar o horário, edite `CRON_SCHEDULE` no `.env`
+e reinicie o container (`docker compose restart`), sem precisar rebuildar a imagem.
+
+O job do cron roda sob `SHELL=/bin/bash` (não o `/bin/sh` padrão) porque precisa
+fazer `source` de `/app/.cron_env` — um dump das variáveis de ambiente relevantes
+gerado no início do container, já que `cron` não herda `.env` automaticamente.
 
 ## Como funciona o fallback de NetBox
 
