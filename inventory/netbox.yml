@@ -19,8 +19,7 @@ compose:
   ansible_host: primary_ip4.address.split('/')[0] if primary_ip4 is defined and primary_ip4 else primary_ip6.address.split('/')[0]
   netbox_device_id: id
   netbox_site: site.slug
-  ansible_network_os: "'community.routeros.routeros'"
-  ansible_connection: "'ansible.netcommon.network_cli'"
+  ansible_connection: "'paramiko'"
 
 # Credenciais de SSH de cada device NÃO ficam no NetBox neste desenho:
 # use group_vars/host_vars com ansible-vault, indexado por hostname/ID do NetBox.

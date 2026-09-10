@@ -10,21 +10,32 @@
     mode: "0755"
   delegate_to: localhost
 
-- name: "{{ inventory_hostname }} :: obter export de configuração (RouterOS)"
-  community.routeros.command:
-    commands:
-      - /export terse
+- name: "{{ inventory_hostname }} :: obter export de configuração (paramiko local, sem PTY)"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ role_path }}/../../scripts/routeros_export.py"
+      - --host
+      - "{{ ansible_host }}"
+      - --port
+      - "{{ ansible_port | default(22) }}"
+      - --user
+      - "{{ ansible_user }}"
+      - --timeout
+      - "{{ command_timeout_seconds }}"
+  delegate_to: localhost
   register: mikrotik_export_result
-  ignore_unreachable: true
   ignore_errors: true
-  vars:
-    ansible_command_timeout: "{{ command_timeout_seconds }}"
+  changed_when: false
+  no_log: true
+  environment:
+    MIKROTIK_SSH_PASSWORD: "{{ ansible_password }}"
 
 - name: "{{ inventory_hostname }} :: marcar falha de extração"
   ansible.builtin.set_fact:
     mikrotik_backup_status: backup_failed
-    mikrotik_backup_error: "{{ mikrotik_export_result.msg | default('Falha ao executar /export via SSH') }}"
-  when: mikrotik_export_result is failed or mikrotik_export_result is unreachable
+    mikrotik_backup_error: "{{ mikrotik_export_result.stderr | default(mikrotik_export_result.msg) | default('Falha ao executar /export via SSH') }}"
+  when: mikrotik_export_result is failed
 
 - name: "{{ inventory_hostname }} :: checar backup anterior (latest.rsc)"
   ansible.builtin.stat:
@@ -42,19 +53,26 @@
     - mikrotik_backup_status != 'backup_failed'
     - mikrotik_previous_backup.stat.exists
 
+- name: "{{ inventory_hostname }} :: normalizar export atual (sem 1a linha, que tem timestamp)"
+  ansible.builtin.set_fact:
+    mikrotik_new_content_normalized: "{{ mikrotik_export_result.stdout.split('\n')[1:] | join('\n') }}"
+  when: mikrotik_backup_status != 'backup_failed'
+
+- name: "{{ inventory_hostname }} :: normalizar export anterior (sem 1a linha)"
+  ansible.builtin.set_fact:
+    mikrotik_previous_content_normalized: "{{ (mikrotik_previous_backup_slurp.content | b64decode).split('\n')[1:] | join('\n') }}"
+  when:
+    - mikrotik_backup_status != 'backup_failed'
+    - mikrotik_previous_backup.stat.exists
+
 - name: "{{ inventory_hostname }} :: comparar com backup anterior (ignorando linha de data/hora do export)"
   ansible.builtin.set_fact:
-    mikrotik_backup_changed: >-
-      {{
-        (not mikrotik_previous_backup.stat.exists) or
-        ((mikrotik_previous_backup_slurp.content | b64decode).split('\n')[1:] | join('\n'))
-        != (mikrotik_export_result.stdout[0].split('\n')[1:] | join('\n'))
-      }}
+    mikrotik_backup_changed: "{{ (not mikrotik_previous_backup.stat.exists) or (mikrotik_previous_content_normalized != mikrotik_new_content_normalized) }}"
   when: mikrotik_backup_status != 'backup_failed'
 
 - name: "{{ inventory_hostname }} :: atualizar 'latest.rsc'"
   ansible.builtin.copy:
-    content: "{{ mikrotik_export_result.stdout[0] }}"
+    content: "{{ mikrotik_export_result.stdout }}"
     dest: "{{ mikrotik_backup_dir }}/latest.rsc"
     mode: "0644"
   delegate_to: localhost
@@ -62,7 +80,7 @@
 
 - name: "{{ inventory_hostname }} :: gravar snapshot datado (config mudou)"
   ansible.builtin.copy:
-    content: "{{ mikrotik_export_result.stdout[0] }}"
+    content: "{{ mikrotik_export_result.stdout }}"
     dest: "{{ mikrotik_backup_dir }}/{{ mikrotik_backup_timestamp }}.rsc"
     mode: "0644"
   delegate_to: localhost

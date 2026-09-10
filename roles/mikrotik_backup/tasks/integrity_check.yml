@@ -18,7 +18,7 @@
     mikrotik_backup_error: "Conteúdo do export não contém nenhum dos marcadores esperados de RouterOS: {{ backup_required_markers }}"
   when:
     - mikrotik_backup_status != 'integrity_failed'
-    - backup_required_markers | select('in', mikrotik_export_result.stdout[0]) | list | length == 0
+    - backup_required_markers | select('in', mikrotik_export_result.stdout) | list | length == 0
 
 - name: "{{ inventory_hostname }} :: calcular checksum do backup"
   ansible.builtin.stat:
