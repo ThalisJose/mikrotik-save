@@ -1,7 +1,7 @@
 .env
 .env.local
 *.retry
-cache/*.json
+cache/*
 !cache/.gitkeep
 __pycache__/
 *.pyc
