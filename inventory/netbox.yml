@@ -3,10 +3,11 @@ api_endpoint: "{{ lookup('env', 'NETBOX_URL') }}"
 token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
 validate_certs: "{{ lookup('env', 'NETBOX_VALIDATE_CERTS') | default(true, true) }}"
 
-# Ajuste este filtro para bater com o modelo real de Mikrotiks no seu NetBox.
-# Alternativas comuns: device_role, platform, tags. Combine quantos precisar.
+# Confirmado via API em produção (netbox.alsol.local, NetBox 4.7):
+# manufacturer slug = "mikrotik", device role slug = "router" (115 devices).
 query_filters:
   - manufacturer: "mikrotik"
+  - role: "router"
 
 # Campos extras trazidos do NetBox e expostos como hostvars
 device_query_filters: []
