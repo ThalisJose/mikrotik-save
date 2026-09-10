@@ -40,18 +40,26 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
+# Diff calculado ignorando a 1a linha (timestamp do /export, que muda sempre e
+# não é uma mudança de configuração real) - usa `diff` sobre conteudo normalizado
+# em vez de `git diff` puro no arquivo inteiro.
 DIFF_MAX_LINES="${NOTIFY_DIFF_MAX_LINES:-300}"
 DIFFS_JSON="[]"
 while IFS= read -r dev; do
   [ -z "$dev" ] && continue
   DIFF_TMP=$(mktemp)
-  git diff --cached -- "backups/${dev}/latest.rsc" | tail -n +5 | head -n "$DIFF_MAX_LINES" > "$DIFF_TMP"
-  TOTAL_DIFF_LINES=$(git diff --cached -- "backups/${dev}/latest.rsc" | tail -n +5 | wc -l | tr -d ' ')
-  if [ "$TOTAL_DIFF_LINES" -gt "$DIFF_MAX_LINES" ]; then
+  OLD_TMP=$(mktemp)
+  NEW_TMP=$(mktemp)
+  git show "HEAD:backups/${dev}/latest.rsc" 2>/dev/null | tail -n +2 > "$OLD_TMP" || true
+  tail -n +2 "backups/${dev}/latest.rsc" > "$NEW_TMP"
+  FULL_DIFF=$(diff -u "$OLD_TMP" "$NEW_TMP" | tail -n +3 || true)
+  echo "$FULL_DIFF" | head -n "$DIFF_MAX_LINES" > "$DIFF_TMP"
+  TOTAL_DIFF_LINES=$(echo "$FULL_DIFF" | grep -c . || true)
+  if [ "${TOTAL_DIFF_LINES:-0}" -gt "$DIFF_MAX_LINES" ]; then
     echo "... (diff truncado, ${TOTAL_DIFF_LINES} linhas no total, mostrando as primeiras ${DIFF_MAX_LINES})" >> "$DIFF_TMP"
   fi
   DIFFS_JSON=$(jq --arg host "$dev" --rawfile diff "$DIFF_TMP" '. + [{host: $host, diff: $diff}]' <<< "$DIFFS_JSON")
-  rm -f "$DIFF_TMP"
+  rm -f "$DIFF_TMP" "$OLD_TMP" "$NEW_TMP"
 done < <(jq -r '.summary.changed_devices[]?' "$LOG_FILE")
 
 COMMIT_MSG="backup mikrotik: ${RUN_ID} (modo=${INVENTORY_MODE}) - total=${TOTAL} ok=${SUCCESS} falha_backup=${BACKUP_FAILED} falha_integridade=${INTEGRITY_FAILED} inacessiveis=${UNREACHABLE} config_alterada=${CHANGED_COUNT} podados=${PRUNED_COUNT}"
