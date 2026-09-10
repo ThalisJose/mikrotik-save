@@ -17,6 +17,7 @@ UNREACHABLE=$(jq -r '.summary.unreachable' "$LOG_FILE")
 CHANGED_COUNT=$(jq -r '.summary.changed_count' "$LOG_FILE")
 GIT_COMMITTED=$(jq -r '.summary.git_committed // false' "$LOG_FILE")
 GIT_SHA=$(jq -r '.summary.git_commit_sha // "-"' "$LOG_FILE")
+GIT_URL=$(jq -r '.summary.git_commit_url // ""' "$LOG_FILE")
 GIT_PUSHED=$(jq -r '.summary.git_pushed // false' "$LOG_FILE")
 PRUNED=$(jq -r '.summary.pruned_snapshots // 0' "$LOG_FILE")
 
@@ -50,6 +51,9 @@ trap 'rm -f "$MSG_FILE"' EXIT
   echo "Inacessíveis: ${UNREACHABLE}"
   echo
   echo "Commit no git: ${GIT_COMMITTED} (sha=${GIT_SHA}, push=${GIT_PUSHED})"
+  if [ -n "$GIT_URL" ]; then
+    echo "Ver commit: ${GIT_URL}"
+  fi
   echo "Snapshots antigos podados (retenção): ${PRUNED}"
   echo
   echo "Dispositivos com configuração alterada nesta rodada (${CHANGED_COUNT}):"

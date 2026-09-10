@@ -74,6 +74,7 @@ fi
 
 git commit -q -m "${COMMIT_MSG}"
 COMMIT_SHA=$(git rev-parse --short HEAD)
+COMMIT_SHA_FULL=$(git rev-parse HEAD)
 
 PUSHED=false
 if git remote get-url "${GIT_REMOTE_NAME:-origin}" >/dev/null 2>&1; then
@@ -83,10 +84,22 @@ else
   echo "Nenhum remote git configurado; commit feito apenas localmente." >&2
 fi
 
+# Converte a URL do remote (SSH ou HTTPS) para uma URL web clicavel, ex.:
+# git@github.com:org/repo.git -> https://github.com/org/repo
+# https://gitlab.exemplo.com/org/repo.git -> https://gitlab.exemplo.com/org/repo
+COMMIT_URL=""
+REMOTE_URL=$(git remote get-url "${GIT_REMOTE_NAME:-origin}" 2>/dev/null || true)
+if [ -n "$REMOTE_URL" ]; then
+  WEB_URL=$(echo "$REMOTE_URL" | sed -E 's#^git@([^:]+):(.+)\.git$#https://\1/\2#; s#\.git$##')
+  if echo "$WEB_URL" | grep -qE '^https?://'; then
+    COMMIT_URL="${WEB_URL}/commit/${COMMIT_SHA_FULL}"
+  fi
+fi
+
 DIFFS_TMP=$(mktemp)
 echo "$DIFFS_JSON" > "$DIFFS_TMP"
 
-jq --arg sha "$COMMIT_SHA" --argjson pushed "$PUSHED" --argjson pruned "$PRUNED_COUNT" --slurpfile diffs "$DIFFS_TMP" \
-   '.summary.git_committed = true | .summary.git_commit_sha = $sha | .summary.git_pushed = $pushed | .summary.pruned_snapshots = $pruned | .summary.diffs = $diffs[0]' \
+jq --arg sha "$COMMIT_SHA" --arg url "$COMMIT_URL" --argjson pushed "$PUSHED" --argjson pruned "$PRUNED_COUNT" --slurpfile diffs "$DIFFS_TMP" \
+   '.summary.git_committed = true | .summary.git_commit_sha = $sha | .summary.git_commit_url = $url | .summary.git_pushed = $pushed | .summary.pruned_snapshots = $pruned | .summary.diffs = $diffs[0]' \
    "$LOG_FILE" > "${LOG_FILE}.tmp" && mv "${LOG_FILE}.tmp" "$LOG_FILE"
 rm -f "$DIFFS_TMP"
