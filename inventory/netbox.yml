@@ -1,7 +1,17 @@
 plugin: netbox.netbox.nb_inventory
-api_endpoint: "{{ lookup('env', 'NETBOX_URL') }}"
-token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
-validate_certs: "{{ lookup('env', 'NETBOX_VALIDATE_CERTS') | default(true, true) }}"
+# api_endpoint NAO suporta Jinja neste plugin (le via get_option() puro, sem
+# templar) - por isso NAO é definido aqui. scripts/run_backup.sh exporta a
+# env var nativa do plugin (NETBOX_API) a partir de NETBOX_URL antes de
+# chamar ansible-inventory.
+#
+# token JA suporta Jinja (o plugin roda self.templar.template() nele).
+# Tokens "scoped" do NetBox 4.x (formato key.secret, com ponto) exigem
+# 'Authorization: Bearer'; tokens classicos usam 'Authorization: Token'.
+# Detecta automaticamente pela presença de "." no valor de NETBOX_TOKEN.
+token:
+  type: "{{ 'Bearer' if '.' in lookup('env', 'NETBOX_TOKEN') else 'Token' }}"
+  value: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+validate_certs: false
 
 # Confirmado via API em produção (netbox.alsol.local, NetBox 4.7):
 # manufacturer slug = "mikrotik", device role slug = "router" (115 devices).
@@ -16,12 +26,20 @@ group_by:
   - sites
   - tags
 
+# Garante um grupo fixo "mikrotik" com TODOS os hosts retornados por este
+# inventario, independente de device_role/site/tag - e o grupo que o
+# playbook usa por padrao quando TARGET=all (ver playbooks/backup.yml).
+groups:
+  mikrotik: true
+
 compose:
   ansible_host: primary_ip4.address.split('/')[0] if primary_ip4 is defined and primary_ip4 else primary_ip6.address.split('/')[0]
   netbox_device_id: id
   netbox_site: site.slug
   ansible_connection: "'paramiko'"
 
-# Credenciais de SSH de cada device NÃO ficam no NetBox neste desenho:
-# use group_vars/host_vars com ansible-vault, indexado por hostname/ID do NetBox.
-# Ex.: inventory/group_vars/<nome-do-grupo>.yml ou host_vars/<device>.yml (vault).
+# Credenciais de SSH: usuario/senha comuns (compartilhados) ficam em
+# inventory/group_vars/mikrotik.yml, lidos de MIKROTIK_SSH_USER/PASSWORD no
+# .env. Para um device especifico com credencial diferente, crie
+# inventory/host_vars/<nome-exato-no-netbox>.yml sobrescrevendo ansible_user/
+# ansible_password so para aquele host.

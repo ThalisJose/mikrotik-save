@@ -3,6 +3,11 @@ set -euo pipefail
 
 LOG_FILE="$1"
 
+if [ "${NOTIFY_ENABLED:-true}" != "true" ]; then
+  echo "[notify] NOTIFY_ENABLED=false; notificação por e-mail desativada." >&2
+  exit 0
+fi
+
 if [ -z "${NOTIFY_SMTP_URL:-}" ]; then
   echo "[notify] NOTIFY_SMTP_URL não configurado; pulando notificação por e-mail." >&2
   exit 0

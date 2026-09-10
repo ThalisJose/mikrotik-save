@@ -1,0 +1,2 @@
+ansible_user: "{{ lookup('env', 'MIKROTIK_SSH_USER') }}"
+ansible_password: "{{ lookup('env', 'MIKROTIK_SSH_PASSWORD') }}"

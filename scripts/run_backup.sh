@@ -29,8 +29,21 @@ if [ "$INVENTORY_MODE" = "local" ]; then
 else
   echo "[inventário] verificando disponibilidade do NetBox..."
   mkdir -p cache
+
+  # netbox.netbox.nb_inventory nao aplica Jinja em api_endpoint (so em
+  # token), entao usamos o fallback nativo do plugin via env var NETBOX_API.
+  export NETBOX_API="${NETBOX_URL:-}"
+
+  # Tokens "scoped" do NetBox 4.x (formato key.secret, com ponto) exigem
+  # 'Authorization: Bearer'; tokens classicos usam 'Authorization: Token'.
+  if [[ "${NETBOX_TOKEN:-}" == *.* ]]; then
+    NETBOX_AUTH_HEADER="Bearer ${NETBOX_TOKEN:-}"
+  else
+    NETBOX_AUTH_HEADER="Token ${NETBOX_TOKEN:-}"
+  fi
+
   NETBOX_UP=0
-  if curl -fsS --max-time 8 -H "Authorization: Token ${NETBOX_TOKEN:-}" \
+  if curl -fsS --max-time 8 -H "Authorization: ${NETBOX_AUTH_HEADER}" \
        "${NETBOX_URL%/}/api/status/" > /dev/null 2>cache/last_netbox_error.log; then
     NETBOX_UP=1
   fi
