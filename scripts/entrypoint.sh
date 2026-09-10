@@ -5,6 +5,15 @@ cd /app
 
 BACKUPS_REPO_DIR="${BACKUPS_REPO_DIR:-/app/data}"
 
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+touch ~/.ssh/known_hosts
+for h in $(echo "${GIT_KNOWN_HOSTS:-github.com}" | tr ',' ' '); do
+  if ! ssh-keygen -F "$h" >/dev/null 2>&1; then
+    ssh-keyscan -H "$h" >> ~/.ssh/known_hosts 2>/dev/null || true
+  fi
+done
+
 git config --global --add safe.directory "${BACKUPS_REPO_DIR}"
 if [ -n "${GIT_USER_NAME:-}" ]; then git config --global user.name "${GIT_USER_NAME}"; fi
 if [ -n "${GIT_USER_EMAIL:-}" ]; then git config --global user.email "${GIT_USER_EMAIL}"; fi

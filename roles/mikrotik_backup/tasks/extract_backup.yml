@@ -42,9 +42,14 @@
     - mikrotik_backup_status != 'backup_failed'
     - mikrotik_previous_backup.stat.exists
 
-- name: "{{ inventory_hostname }} :: comparar com backup anterior"
+- name: "{{ inventory_hostname }} :: comparar com backup anterior (ignorando linha de data/hora do export)"
   ansible.builtin.set_fact:
-    mikrotik_backup_changed: "{{ (not mikrotik_previous_backup.stat.exists) or ((mikrotik_previous_backup_slurp.content | b64decode) != mikrotik_export_result.stdout[0]) }}"
+    mikrotik_backup_changed: >-
+      {{
+        (not mikrotik_previous_backup.stat.exists) or
+        ((mikrotik_previous_backup_slurp.content | b64decode).split('\n')[1:] | join('\n'))
+        != (mikrotik_export_result.stdout[0].split('\n')[1:] | join('\n'))
+      }}
   when: mikrotik_backup_status != 'backup_failed'
 
 - name: "{{ inventory_hostname }} :: atualizar 'latest.rsc'"
