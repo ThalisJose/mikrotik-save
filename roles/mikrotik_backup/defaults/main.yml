@@ -1,0 +1,5 @@
+mikrotik_backup_status: unknown
+mikrotik_backup_error: ""
+mikrotik_backup_file: ""
+mikrotik_backup_bytes: 0
+mikrotik_backup_changed: false

@@ -1,0 +1,18 @@
+.env
+.env.local
+*.retry
+cache/*.json
+!cache/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store
+
+.claude/
+.vscode/
+
+# arquivos pré-existentes com credenciais/chaves - nunca versionar
+Notebook-Thalis.conf
+monitoring_creds.txt
+notebook-thalis.key
+notebook-thalis.pub
+mikrotik_run.exp

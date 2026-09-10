@@ -1,0 +1,71 @@
+- name: "{{ inventory_hostname }} :: definir caminhos de saída"
+  ansible.builtin.set_fact:
+    mikrotik_backup_dir: "{{ backup_root_dir }}/{{ inventory_hostname }}"
+    mikrotik_backup_timestamp: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+
+- name: "{{ inventory_hostname }} :: garantir diretório de backup"
+  ansible.builtin.file:
+    path: "{{ mikrotik_backup_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+
+- name: "{{ inventory_hostname }} :: obter export de configuração (RouterOS)"
+  community.routeros.command:
+    commands:
+      - /export terse
+  register: mikrotik_export_result
+  ignore_unreachable: true
+  ignore_errors: true
+  vars:
+    ansible_command_timeout: "{{ command_timeout_seconds }}"
+
+- name: "{{ inventory_hostname }} :: marcar falha de extração"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: backup_failed
+    mikrotik_backup_error: "{{ mikrotik_export_result.msg | default('Falha ao executar /export via SSH') }}"
+  when: mikrotik_export_result is failed or mikrotik_export_result is unreachable
+
+- name: "{{ inventory_hostname }} :: checar backup anterior (latest.rsc)"
+  ansible.builtin.stat:
+    path: "{{ mikrotik_backup_dir }}/latest.rsc"
+  delegate_to: localhost
+  register: mikrotik_previous_backup
+  when: mikrotik_backup_status != 'backup_failed'
+
+- name: "{{ inventory_hostname }} :: ler conteúdo do backup anterior"
+  ansible.builtin.slurp:
+    src: "{{ mikrotik_backup_dir }}/latest.rsc"
+  delegate_to: localhost
+  register: mikrotik_previous_backup_slurp
+  when:
+    - mikrotik_backup_status != 'backup_failed'
+    - mikrotik_previous_backup.stat.exists
+
+- name: "{{ inventory_hostname }} :: comparar com backup anterior"
+  ansible.builtin.set_fact:
+    mikrotik_backup_changed: "{{ (not mikrotik_previous_backup.stat.exists) or ((mikrotik_previous_backup_slurp.content | b64decode) != mikrotik_export_result.stdout[0]) }}"
+  when: mikrotik_backup_status != 'backup_failed'
+
+- name: "{{ inventory_hostname }} :: atualizar 'latest.rsc'"
+  ansible.builtin.copy:
+    content: "{{ mikrotik_export_result.stdout[0] }}"
+    dest: "{{ mikrotik_backup_dir }}/latest.rsc"
+    mode: "0644"
+  delegate_to: localhost
+  when: mikrotik_backup_status != 'backup_failed'
+
+- name: "{{ inventory_hostname }} :: gravar snapshot datado (config mudou)"
+  ansible.builtin.copy:
+    content: "{{ mikrotik_export_result.stdout[0] }}"
+    dest: "{{ mikrotik_backup_dir }}/{{ mikrotik_backup_timestamp }}.rsc"
+    mode: "0644"
+  delegate_to: localhost
+  when:
+    - mikrotik_backup_status != 'backup_failed'
+    - mikrotik_backup_changed
+
+- name: "{{ inventory_hostname }} :: registrar caminho do backup"
+  ansible.builtin.set_fact:
+    mikrotik_backup_file: "{{ mikrotik_backup_dir }}/latest.rsc"
+  when: mikrotik_backup_status != 'backup_failed'

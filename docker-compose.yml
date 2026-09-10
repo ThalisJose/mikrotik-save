@@ -1,0 +1,13 @@
+services:
+  mikrotik-backup:
+    build: .
+    image: mikrotik-backup:local
+    env_file:
+      - .env
+    volumes:
+      - ${BACKUPS_REPO_HOST_DIR:-../mikrotik-data}:/app/data
+      - ./cache:/app/cache
+      - /run/host-services/ssh-auth.sock:/ssh-agent
+    environment:
+      - SSH_AUTH_SOCK=/ssh-agent
+    command: ["cron"]

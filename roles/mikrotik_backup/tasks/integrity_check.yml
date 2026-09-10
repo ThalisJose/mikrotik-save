@@ -1,0 +1,36 @@
+- name: "{{ inventory_hostname }} :: checar arquivo de backup no disco local"
+  ansible.builtin.stat:
+    path: "{{ mikrotik_backup_file }}"
+  delegate_to: localhost
+  register: mikrotik_backup_stat
+
+- name: "{{ inventory_hostname }} :: marcar falha de integridade (arquivo ausente/vazio)"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: integrity_failed
+    mikrotik_backup_error: "Arquivo de backup ausente ou menor que {{ backup_min_size_bytes }} bytes"
+  when: >
+    not mikrotik_backup_stat.stat.exists
+    or mikrotik_backup_stat.stat.size < backup_min_size_bytes
+
+- name: "{{ inventory_hostname }} :: validar marcadores esperados do export RouterOS"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: integrity_failed
+    mikrotik_backup_error: "Conteúdo do export não contém nenhum dos marcadores esperados de RouterOS: {{ backup_required_markers }}"
+  when:
+    - mikrotik_backup_status != 'integrity_failed'
+    - backup_required_markers | select('in', mikrotik_export_result.stdout[0]) | list | length == 0
+
+- name: "{{ inventory_hostname }} :: calcular checksum do backup"
+  ansible.builtin.stat:
+    path: "{{ mikrotik_backup_file }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  register: mikrotik_backup_checksum
+  when: mikrotik_backup_status not in ['integrity_failed', 'backup_failed', 'unreachable']
+
+- name: "{{ inventory_hostname }} :: marcar sucesso"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: success
+    mikrotik_backup_bytes: "{{ mikrotik_backup_stat.stat.size }}"
+    mikrotik_backup_checksum_sha256: "{{ mikrotik_backup_checksum.stat.checksum | default('') }}"
+  when: mikrotik_backup_status not in ['integrity_failed', 'backup_failed', 'unreachable']

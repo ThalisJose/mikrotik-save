@@ -1,0 +1,14 @@
+- name: "{{ inventory_hostname }} :: testar alcançabilidade (TCP {{ ansible_port | default(22) }})"
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ ansible_port | default(22) }}"
+    timeout: "{{ connectivity_timeout_seconds }}"
+  delegate_to: localhost
+  register: mikrotik_connectivity
+  ignore_errors: true
+
+- name: "{{ inventory_hostname }} :: marcar como inacessível"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: unreachable
+    mikrotik_backup_error: "Porta {{ ansible_port | default(22) }} não respondeu em {{ connectivity_timeout_seconds }}s"
+  when: mikrotik_connectivity is failed

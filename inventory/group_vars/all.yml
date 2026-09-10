@@ -1,0 +1,17 @@
+backups_repo_dir: "{{ lookup('env', 'BACKUPS_REPO_DIR') | default('/app/data', true) }}"
+backup_root_dir: "{{ backups_repo_dir }}/backups"
+logs_root_dir: "{{ backups_repo_dir }}/logs"
+cache_root_dir: "{{ lookup('env', 'CACHE_DIR') | default('/app/cache', true) }}"
+
+connectivity_timeout_seconds: 5
+command_timeout_seconds: 20
+
+backup_min_size_bytes: 50
+backup_required_markers:
+  - "/interface"
+
+batch_size: "{{ lookup('env', 'BACKUP_BATCH_SIZE') | default(10, true) }}"
+batch_pause_seconds: "{{ lookup('env', 'BACKUP_BATCH_PAUSE_SECONDS') | default(5, true) }}"
+
+git_remote_name: origin
+git_default_branch: main

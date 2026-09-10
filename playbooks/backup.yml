@@ -1,0 +1,96 @@
+---
+- name: Backup dos Mikrotiks em lotes
+  hosts: "{{ target_hosts | default('mikrotik') }}"
+  gather_facts: false
+  ignore_unreachable: true
+  serial: "{{ batch_size | default(10) }}"
+  vars_files:
+    - "{{ playbook_dir }}/../inventory/group_vars/all.yml"
+  roles:
+    - mikrotik_backup
+  post_tasks:
+    - name: Pausa entre lotes
+      ansible.builtin.pause:
+        seconds: "{{ batch_pause_seconds | default(5) }}"
+      run_once: true
+      when: (batch_pause_seconds | default(5) | int) > 0
+
+- name: Agregar resultados da rodada e versionar no Git
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  vars_files:
+    - "{{ playbook_dir }}/../inventory/group_vars/all.yml"
+  vars:
+    run_id: "{{ ansible_date_time.iso8601_basic_short }}"
+    run_targets: "{{ groups['backup_run_targets'] | default([]) }}"
+  tasks:
+    - name: Inicializar lista de resultados
+      ansible.builtin.set_fact:
+        run_results: []
+
+    - name: Montar resultado por host
+      ansible.builtin.set_fact:
+        run_results: "{{ run_results | default([]) + [{
+          'host': item,
+          'status': hostvars[item].mikrotik_backup_status | default('unknown'),
+          'error': hostvars[item].mikrotik_backup_error | default(''),
+          'file': hostvars[item].mikrotik_backup_file | default(''),
+          'bytes': hostvars[item].mikrotik_backup_bytes | default(0),
+          'sha256': hostvars[item].mikrotik_backup_checksum_sha256 | default(''),
+          'changed': hostvars[item].mikrotik_backup_changed | default(false)
+        }] }}"
+      loop: "{{ run_targets }}"
+
+    - name: Calcular resumo agregado
+      ansible.builtin.set_fact:
+        run_summary:
+          run_id: "{{ run_id }}"
+          started_at: "{{ ansible_date_time.iso8601 }}"
+          total: "{{ run_results | length }}"
+          success: "{{ run_results | selectattr('status', 'equalto', 'success') | list | length }}"
+          backup_failed: "{{ run_results | selectattr('status', 'equalto', 'backup_failed') | list | length }}"
+          integrity_failed: "{{ run_results | selectattr('status', 'equalto', 'integrity_failed') | list | length }}"
+          unreachable: "{{ run_results | selectattr('status', 'equalto', 'unreachable') | list | length }}"
+          changed_count: "{{ run_results | selectattr('changed', 'equalto', true) | list | length }}"
+          changed_devices: "{{ run_results | selectattr('changed', 'equalto', true) | map(attribute='host') | list }}"
+          inventory_mode: "{{ lookup('env', 'INVENTORY_MODE') | default('netbox', true) }}"
+          retention_policy: >-
+            Snapshot datado (backups/<host>/<timestamp>.rsc) so e criado quando o
+            export muda em relacao ao latest.rsc anterior, para nao acumular copias
+            identicas dia apos dia. O historico real de 'o que mudou e quando' fica
+            no historico git do proprio latest.rsc (git log -p -- backups/<host>/latest.rsc).
+            Snapshots datados com mais de {{ lookup('env', 'RETENTION_DAYS') | default(90, true) }}
+            dias sao removidos da arvore de trabalho (permanecem recuperaveis via
+            'git show <commit>:<caminho>'), latest.rsc nunca e podado.
+
+    - name: Garantir diretório de logs
+      ansible.builtin.file:
+        path: "{{ logs_root_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Gravar log JSON da rodada
+      ansible.builtin.copy:
+        content: "{{ {'summary': run_summary, 'hosts': run_results} | to_nice_json }}"
+        dest: "{{ logs_root_dir }}/{{ run_id }}.json"
+        mode: "0644"
+
+    - name: Executar commit e push da rodada
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/../scripts/git_commit.sh"
+          - "{{ logs_root_dir }}/{{ run_id }}.json"
+      register: git_commit_result
+      changed_when: "'nothing to commit' not in git_commit_result.stdout"
+
+    - name: Enviar notificação por e-mail da rodada
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/../scripts/notify.sh"
+          - "{{ logs_root_dir }}/{{ run_id }}.json"
+      changed_when: false
+
+    - name: Exibir resumo da rodada
+      ansible.builtin.debug:
+        var: run_summary

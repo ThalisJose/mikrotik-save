@@ -1,0 +1,23 @@
+- name: "{{ inventory_hostname }} :: reset de estado da rodada"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: unknown
+    mikrotik_backup_error: ""
+    mikrotik_backup_file: ""
+    mikrotik_backup_bytes: 0
+    mikrotik_backup_changed: false
+
+- name: "{{ inventory_hostname }} :: registrar no grupo desta rodada"
+  ansible.builtin.add_host:
+    name: "{{ inventory_hostname }}"
+    groups: backup_run_targets
+
+- name: "{{ inventory_hostname }} :: teste de conectividade"
+  ansible.builtin.include_tasks: connectivity_check.yml
+
+- name: "{{ inventory_hostname }} :: extração do backup"
+  ansible.builtin.include_tasks: extract_backup.yml
+  when: mikrotik_backup_status != 'unreachable'
+
+- name: "{{ inventory_hostname }} :: checagem de integridade"
+  ansible.builtin.include_tasks: integrity_check.yml
+  when: mikrotik_backup_status not in ['unreachable', 'backup_failed']

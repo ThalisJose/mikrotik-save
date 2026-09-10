@@ -1,0 +1,7 @@
+collections:
+  - name: community.routeros
+    version: ">=2.10.0"
+  - name: ansible.netcommon
+    version: ">=5.0.0"
+  - name: netbox.netbox
+    version: ">=3.18.0"
