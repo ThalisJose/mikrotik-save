@@ -57,6 +57,20 @@ trap 'rm -f "$MSG_FILE"' EXIT
   echo
   echo "Hosts com problema:"
   echo "${FAILED_LINES}"
+  echo
+  echo "=== O que mudou ==="
+  DIFF_COUNT=$(jq '.summary.diffs | length' "$LOG_FILE")
+  if [ "${DIFF_COUNT:-0}" = "0" ] || [ "$DIFF_COUNT" = "null" ]; then
+    echo "(nenhuma diferença de configuração nesta rodada)"
+  else
+    while IFS= read -r item; do
+      host=$(jq -r '.host' <<< "$item")
+      diff_text=$(jq -r '.diff' <<< "$item")
+      echo
+      echo "--- ${host} (backups/${host}/latest.rsc) ---"
+      echo "${diff_text}"
+    done < <(jq -c '.summary.diffs[]?' "$LOG_FILE")
+  fi
 } > "$MSG_FILE"
 
 RCPT_ARGS=()

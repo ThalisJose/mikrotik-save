@@ -40,6 +40,20 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
+DIFF_MAX_LINES="${NOTIFY_DIFF_MAX_LINES:-300}"
+DIFFS_JSON="[]"
+while IFS= read -r dev; do
+  [ -z "$dev" ] && continue
+  DIFF_TMP=$(mktemp)
+  git diff --cached -- "backups/${dev}/latest.rsc" | tail -n +5 | head -n "$DIFF_MAX_LINES" > "$DIFF_TMP"
+  TOTAL_DIFF_LINES=$(git diff --cached -- "backups/${dev}/latest.rsc" | tail -n +5 | wc -l | tr -d ' ')
+  if [ "$TOTAL_DIFF_LINES" -gt "$DIFF_MAX_LINES" ]; then
+    echo "... (diff truncado, ${TOTAL_DIFF_LINES} linhas no total, mostrando as primeiras ${DIFF_MAX_LINES})" >> "$DIFF_TMP"
+  fi
+  DIFFS_JSON=$(jq --arg host "$dev" --rawfile diff "$DIFF_TMP" '. + [{host: $host, diff: $diff}]' <<< "$DIFFS_JSON")
+  rm -f "$DIFF_TMP"
+done < <(jq -r '.summary.changed_devices[]?' "$LOG_FILE")
+
 COMMIT_MSG="backup mikrotik: ${RUN_ID} (modo=${INVENTORY_MODE}) - total=${TOTAL} ok=${SUCCESS} falha_backup=${BACKUP_FAILED} falha_integridade=${INTEGRITY_FAILED} inacessiveis=${UNREACHABLE} config_alterada=${CHANGED_COUNT} podados=${PRUNED_COUNT}"
 if [ -n "${FAILED_HOSTS}" ]; then
   COMMIT_MSG="${COMMIT_MSG}
@@ -61,6 +75,10 @@ else
   echo "Nenhum remote git configurado; commit feito apenas localmente." >&2
 fi
 
-jq --arg sha "$COMMIT_SHA" --argjson pushed "$PUSHED" --argjson pruned "$PRUNED_COUNT" \
-   '.summary.git_committed = true | .summary.git_commit_sha = $sha | .summary.git_pushed = $pushed | .summary.pruned_snapshots = $pruned' \
+DIFFS_TMP=$(mktemp)
+echo "$DIFFS_JSON" > "$DIFFS_TMP"
+
+jq --arg sha "$COMMIT_SHA" --argjson pushed "$PUSHED" --argjson pruned "$PRUNED_COUNT" --slurpfile diffs "$DIFFS_TMP" \
+   '.summary.git_committed = true | .summary.git_commit_sha = $sha | .summary.git_pushed = $pushed | .summary.pruned_snapshots = $pruned | .summary.diffs = $diffs[0]' \
    "$LOG_FILE" > "${LOG_FILE}.tmp" && mv "${LOG_FILE}.tmp" "$LOG_FILE"
+rm -f "$DIFFS_TMP"
