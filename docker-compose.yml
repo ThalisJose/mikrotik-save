@@ -7,7 +7,8 @@ services:
     volumes:
       - ${BACKUPS_REPO_HOST_DIR:-../mikrotik-data}:/app/data
       - ./cache:/app/cache
-      - /run/host-services/ssh-auth.sock:/ssh-agent
+      - ${SSH_AUTH_SOCK_HOST_PATH:-/dev/null}:/ssh-agent
+      - ${SSH_DEPLOY_KEY_HOST_PATH:-/dev/null}:/app/.ssh/deploy_key:ro
     environment:
       - SSH_AUTH_SOCK=/ssh-agent
     command: ["cron"]
