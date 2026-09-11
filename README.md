@@ -3,7 +3,9 @@
 Backup diário (ou sob demanda) de 130+ Mikrotiks, com teste de conectividade prévio,
 checagem de integridade, execução em lotes, dedup por conteúdo, retenção e
 notificação por e-mail. Inventário via NetBox em produção, com fallback em cache
-local se o NetBox cair.
+local se o NetBox cair. Cada device gera dois artefatos por rodada: o export de
+configuração em texto (`latest.rsc`) e o backup binário nativo do RouterOS
+(`latest.backup`).
 
 ## Dois repositórios distintos
 
@@ -27,8 +29,9 @@ inventory/local/hosts.yml       inventário estático (teste local, sem NetBox)
 inventory/group_vars/mikrotik.yml credenciais SSH compartilhadas dos Mikrotiks
 inventory/group_vars/all.yml    variáveis padrão (batch, timeouts, thresholds, retenção)
 inventory/host_vars/<host>.yml  overrides por device (ex.: porta SSH não padrão)
-roles/mikrotik_backup/          conectividade -> extração (com dedup) -> integridade
-scripts/routeros_export.py      exporta a config via SSH (paramiko, sem PTY)
+roles/mikrotik_backup/          conectividade -> extração .rsc -> integridade .rsc -> extração .backup -> integridade .backup
+scripts/routeros_export.py      exporta a config via SSH (paramiko, sem PTY) -> latest.rsc
+scripts/routeros_binary_backup.py roda "/system backup save" e baixa via SFTP -> latest.backup
 playbooks/backup.yml            play em lotes + play de agregação/commit/notificação
 scripts/run_backup.sh           orquestra inventário (netbox/local/cache) + chama o playbook
 scripts/git_commit.sh           poda + commit único ao final da rodada, com push
@@ -79,6 +82,27 @@ corrompendo o backup. Por isso a extração roda via `scripts/routeros_export.py
 (paramiko, `exec_command` sem PTY), disparado do controller (`delegate_to:
 localhost`) — o RouterOS não roda Python, então módulos Ansible comuns não
 funcionam nele diretamente.
+
+## Backup binário nativo (.backup)
+
+Além do export em texto, cada rodada também roda `/system backup save` no
+device e baixa o `.backup` resultante via SFTP (mesma sessão SSH, sem PTY),
+via `scripts/routeros_binary_backup.py`. O arquivo é removido do próprio
+RouterOS logo após o download (a flash do equipamento não acumula lixo).
+
+- `MIKROTIK_BACKUP_PASSWORD` (opcional, vazio por padrão): se preenchida, o
+  backup binário é salvo criptografado (mesma senha necessária depois para
+  `/system backup load` no RouterOS). O `.rsc` nunca é criptografado.
+- A extração e a integridade do `.rsc` acontecem primeiro; o backup binário só
+  é tentado se o `.rsc` daquele device já tiver sido extraído e validado com
+  sucesso (evita gastar tempo com o binário se o device já falhou no passo
+  anterior). Uma falha isolada no binário (`binary_backup_failed` /
+  `binary_integrity_failed`) não é silenciosamente ignorada: aparece no
+  `status` do host no log e conta separadamente no resumo da rodada.
+- A checagem de integridade do binário é apenas tamanho mínimo
+  (`binary_backup_min_size_bytes`, padrão 200 bytes) — a MikroTik não
+  documenta publicamente uma assinatura de "magic bytes" para o formato
+  `.backup`, então não há validação de conteúdo além disso.
 
 ## Push do container para o repositório de dados
 
@@ -151,27 +175,39 @@ Em `INVENTORY_MODE=local`, o NetBox nunca é consultado — usa direto
 
 ## Dedup e retenção
 
-- A cada rodada, o export é comparado ao `latest.rsc` anterior daquele
+- A cada rodada, o export `.rsc` é comparado ao `latest.rsc` anterior daquele
   equipamento (ignorando a 1ª linha, o timestamp do `/export`, que muda
-  sempre e não é uma mudança de configuração real). Só é criado um snapshot
-  datado (`backups/<host>/<timestamp>.rsc`) quando o conteúdo realmente muda.
-- `latest.rsc` é sempre atualizado; seu histórico no git já é a fonte de
-  verdade de "o que mudou e quando" (`git log -p -- backups/<host>/latest.rsc`).
+  sempre e não é uma mudança de configuração real); o `.backup` é comparado
+  por checksum (sha256) do arquivo inteiro ao `latest.backup` anterior. Só é
+  criado um snapshot datado (`backups/<host>/<timestamp>.rsc` ou `.backup`)
+  quando o conteúdo daquele tipo realmente muda.
+- **Atenção**: o formato binário do RouterOS pode embutir estado interno do
+  equipamento (não só a configuração), então o `.backup` pode ser marcado
+  como "alterado" com mais frequência que o `.rsc`, mesmo sem mudança de
+  configuração real — isso é uma característica do formato, não um bug do
+  dedup.
+- `latest.rsc` e `latest.backup` são sempre atualizados a cada rodada; o
+  histórico no git já é a fonte de verdade de "o que mudou e quando"
+  (`git log -p -- backups/<host>/latest.rsc`).
 - Snapshots datados com mais de `RETENTION_DAYS` dias (padrão 90) são removidos
   da árvore de trabalho a cada rodada (continuam recuperáveis via
-  `git show <commit>:<caminho>` no histórico). `latest.rsc` nunca é podado.
+  `git show <commit>:<caminho>` no histórico). `latest.rsc` e `latest.backup`
+  nunca são podados.
 
 ## Logs, commit e notificação
 
 - Cada rodada gera `logs/<run_id>.json` (no repositório de dados) com status
-  por host (`success`, `backup_failed`, `integrity_failed`, `unreachable`),
-  quais tiveram configuração alterada, e um resumo agregado.
+  por host (`success`, `backup_failed`, `integrity_failed`,
+  `binary_backup_failed`, `binary_integrity_failed`, `unreachable`), quais
+  tiveram `.rsc` e/ou `.backup` alterado, e um resumo agregado.
 - Ao final da rodada inteira, `scripts/git_commit.sh` poda snapshots antigos,
   faz **um único commit** (backups + log) e `git push` no repositório de dados.
-- `scripts/notify.sh` envia um e-mail com o resumo: total, sucesso/falha/
-  inacessíveis, diff normalizado por device alterado, link direto para o
-  commit (calculado a partir da URL do remote, SSH ou HTTPS) e se o
-  push foi feito. `NOTIFY_ENABLED=false` desativa o envio por completo.
+- `scripts/notify.sh` envia um e-mail com o resumo: total, sucesso/falha
+  (`.rsc` e `.backup` separadamente)/inacessíveis, diff normalizado por
+  device com `.rsc` alterado (o `.backup` não entra no diff por ser binário,
+  só é listado como alterado), link direto para o commit (calculado a partir
+  da URL do remote, SSH ou HTTPS) e se o push foi feito. `NOTIFY_ENABLED=false`
+  desativa o envio por completo.
 
 ## Execução em lotes
 
@@ -186,7 +222,14 @@ No repositório de dados (`../mikrotik-data`):
 ```bash
 git log --oneline -- backups/<hostname>
 git show <commit>:backups/<hostname>/latest.rsc > restaurado.rsc
+git show <commit>:backups/<hostname>/latest.backup > restaurado.backup
 ```
+
+- `.rsc`: cole/rode o conteúdo no terminal do RouterOS (é um script `/export`).
+- `.backup`: envie de volta pro device (via SFTP/WinBox) e rode
+  `/system backup load name=restaurado` (peça a senha se `MIKROTIK_BACKUP_PASSWORD`
+  estava preenchida na rodada em que aquele backup foi gerado) — isso restaura
+  o estado binário completo, não só a configuração exportável em texto.
 
 ## Pendências para produção
 

@@ -20,10 +20,12 @@ UNREACHABLE=$(jq -r '.summary.unreachable' "$LOG_FILE")
 INVENTORY_MODE=$(jq -r '.summary.inventory_mode' "$LOG_FILE")
 CHANGED_COUNT=$(jq -r '.summary.changed_count' "$LOG_FILE")
 CHANGED_DEVICES_CSV=$(jq -r '.summary.changed_devices | join(",")' "$LOG_FILE")
+BINARY_CHANGED_COUNT=$(jq -r '.summary.binary_changed_count // 0' "$LOG_FILE")
+BINARY_CHANGED_DEVICES_CSV=$(jq -r '.summary.binary_changed_devices // [] | join(",")' "$LOG_FILE")
 
 FAILED_HOSTS=$(jq -r '.hosts[] | select(.status != "success") | .host' "$LOG_FILE" | paste -sd ',' -)
 
-PRUNED=$(find backups -type f -name '*.rsc' ! -name 'latest.rsc' -mtime "+${RETENTION_DAYS}" -print)
+PRUNED=$(find backups -type f \( -name '*.rsc' -o -name '*.backup' \) ! -name 'latest.rsc' ! -name 'latest.backup' -mtime "+${RETENTION_DAYS}" -print)
 if [ -n "$PRUNED" ]; then
   echo "$PRUNED" | xargs rm -f
   PRUNED_COUNT=$(echo "$PRUNED" | grep -c .)
@@ -62,7 +64,7 @@ while IFS= read -r dev; do
   rm -f "$DIFF_TMP" "$OLD_TMP" "$NEW_TMP"
 done < <(jq -r '.summary.changed_devices[]?' "$LOG_FILE")
 
-COMMIT_MSG="backup mikrotik: ${RUN_ID} (modo=${INVENTORY_MODE}) - total=${TOTAL} ok=${SUCCESS} falha_backup=${BACKUP_FAILED} falha_integridade=${INTEGRITY_FAILED} inacessiveis=${UNREACHABLE} config_alterada=${CHANGED_COUNT} podados=${PRUNED_COUNT}"
+COMMIT_MSG="backup mikrotik: ${RUN_ID} (modo=${INVENTORY_MODE}) - total=${TOTAL} ok=${SUCCESS} falha_backup=${BACKUP_FAILED} falha_integridade=${INTEGRITY_FAILED} inacessiveis=${UNREACHABLE} config_alterada=${CHANGED_COUNT} backup_binario_alterado=${BINARY_CHANGED_COUNT} podados=${PRUNED_COUNT}"
 if [ -n "${FAILED_HOSTS}" ]; then
   COMMIT_MSG="${COMMIT_MSG}
 Hosts com problema: ${FAILED_HOSTS}"
@@ -70,6 +72,10 @@ fi
 if [ -n "${CHANGED_DEVICES_CSV}" ] && [ "${CHANGED_DEVICES_CSV}" != "null" ]; then
   COMMIT_MSG="${COMMIT_MSG}
 Configuração alterada em: ${CHANGED_DEVICES_CSV} (ver backups/<host>/latest.rsc)"
+fi
+if [ -n "${BINARY_CHANGED_DEVICES_CSV}" ] && [ "${BINARY_CHANGED_DEVICES_CSV}" != "null" ]; then
+  COMMIT_MSG="${COMMIT_MSG}
+Backup binário atualizado em: ${BINARY_CHANGED_DEVICES_CSV} (ver backups/<host>/latest.backup)"
 fi
 
 git commit -q -m "${COMMIT_MSG}"

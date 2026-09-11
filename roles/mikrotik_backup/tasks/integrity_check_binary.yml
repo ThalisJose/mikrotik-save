@@ -1,0 +1,29 @@
+- name: "{{ inventory_hostname }} :: checar arquivo de backup binário no disco local"
+  ansible.builtin.stat:
+    path: "{{ mikrotik_binary_file }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  register: mikrotik_binary_stat
+
+- name: "{{ inventory_hostname }} :: marcar falha de integridade do backup binário (arquivo ausente/pequeno demais)"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: binary_integrity_failed
+    mikrotik_backup_error: "Arquivo de backup binário ausente ou menor que {{ binary_backup_min_size_bytes }} bytes"
+  when: >
+    not mikrotik_binary_stat.stat.exists
+    or mikrotik_binary_stat.stat.size < binary_backup_min_size_bytes
+
+# Não há assinatura de "magic bytes" documentada oficialmente pela MikroTik
+# para o formato .backup, então a integridade aqui se limita a
+# existência + tamanho mínimo (mesmo diretório/arquivo baixado via SFTP
+# logo após o /system backup save, sem passar por wrap de terminal).
+- name: "{{ inventory_hostname }} :: registrar metadados do backup binário"
+  ansible.builtin.set_fact:
+    mikrotik_binary_bytes: "{{ mikrotik_binary_stat.stat.size }}"
+    mikrotik_binary_checksum_sha256: "{{ mikrotik_binary_stat.stat.checksum | default('') }}"
+  when: mikrotik_backup_status != 'binary_integrity_failed'
+
+- name: "{{ inventory_hostname }} :: marcar sucesso da rodada"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: success
+  when: mikrotik_backup_status not in ['binary_integrity_failed', 'binary_backup_failed', 'integrity_failed', 'backup_failed', 'unreachable']

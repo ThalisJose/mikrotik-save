@@ -10,6 +10,9 @@ backup_min_size_bytes: 50
 backup_required_markers:
   - "/interface"
 
+binary_backup_min_size_bytes: 200
+binary_backup_timeout_seconds: 60
+
 batch_size: "{{ lookup('env', 'BACKUP_BATCH_SIZE') | default(10, true) }}"
 batch_pause_seconds: "{{ lookup('env', 'BACKUP_BATCH_PAUSE_SECONDS') | default(5, true) }}"
 

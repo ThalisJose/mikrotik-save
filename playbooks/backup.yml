@@ -38,7 +38,11 @@
           'file': hostvars[item].mikrotik_backup_file | default(''),
           'bytes': hostvars[item].mikrotik_backup_bytes | default(0),
           'sha256': hostvars[item].mikrotik_backup_checksum_sha256 | default(''),
-          'changed': hostvars[item].mikrotik_backup_changed | default(false)
+          'changed': hostvars[item].mikrotik_backup_changed | default(false),
+          'binary_file': hostvars[item].mikrotik_binary_file | default(''),
+          'binary_bytes': hostvars[item].mikrotik_binary_bytes | default(0),
+          'binary_sha256': hostvars[item].mikrotik_binary_checksum_sha256 | default(''),
+          'binary_changed': hostvars[item].mikrotik_binary_changed | default(false)
         }] }}"
       loop: "{{ run_targets }}"
 
@@ -51,18 +55,23 @@
           success: "{{ run_results | selectattr('status', 'equalto', 'success') | list | length }}"
           backup_failed: "{{ run_results | selectattr('status', 'equalto', 'backup_failed') | list | length }}"
           integrity_failed: "{{ run_results | selectattr('status', 'equalto', 'integrity_failed') | list | length }}"
+          binary_backup_failed: "{{ run_results | selectattr('status', 'equalto', 'binary_backup_failed') | list | length }}"
+          binary_integrity_failed: "{{ run_results | selectattr('status', 'equalto', 'binary_integrity_failed') | list | length }}"
           unreachable: "{{ run_results | selectattr('status', 'equalto', 'unreachable') | list | length }}"
           changed_count: "{{ run_results | selectattr('changed', 'equalto', true) | list | length }}"
           changed_devices: "{{ run_results | selectattr('changed', 'equalto', true) | map(attribute='host') | list }}"
+          binary_changed_count: "{{ run_results | selectattr('binary_changed', 'equalto', true) | list | length }}"
+          binary_changed_devices: "{{ run_results | selectattr('binary_changed', 'equalto', true) | map(attribute='host') | list }}"
           inventory_mode: "{{ lookup('env', 'INVENTORY_MODE') | default('netbox', true) }}"
           retention_policy: >-
-            Snapshot datado (backups/<host>/<timestamp>.rsc) so e criado quando o
-            export muda em relacao ao latest.rsc anterior, para nao acumular copias
-            identicas dia apos dia. O historico real de 'o que mudou e quando' fica
-            no historico git do proprio latest.rsc (git log -p -- backups/<host>/latest.rsc).
-            Snapshots datados com mais de {{ lookup('env', 'RETENTION_DAYS') | default(90, true) }}
-            dias sao removidos da arvore de trabalho (permanecem recuperaveis via
-            'git show <commit>:<caminho>'), latest.rsc nunca e podado.
+            Snapshot datado (backups/<host>/<timestamp>.rsc ou .backup) so e criado
+            quando o conteudo muda em relacao ao latest anterior daquele tipo, para
+            nao acumular copias identicas dia apos dia. O historico real de 'o que
+            mudou e quando' fica no historico git do proprio latest (git log -p --
+            backups/<host>/latest.rsc). Snapshots datados com mais de
+            {{ lookup('env', 'RETENTION_DAYS') | default(90, true) }} dias sao
+            removidos da arvore de trabalho (permanecem recuperaveis via
+            'git show <commit>:<caminho>'); os arquivos latest.* nunca sao podados.
 
     - name: Garantir diretório de logs
       ansible.builtin.file:

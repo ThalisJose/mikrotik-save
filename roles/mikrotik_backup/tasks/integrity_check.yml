@@ -28,9 +28,8 @@
   register: mikrotik_backup_checksum
   when: mikrotik_backup_status not in ['integrity_failed', 'backup_failed', 'unreachable']
 
-- name: "{{ inventory_hostname }} :: marcar sucesso"
+- name: "{{ inventory_hostname }} :: registrar metadados do export (.rsc)"
   ansible.builtin.set_fact:
-    mikrotik_backup_status: success
     mikrotik_backup_bytes: "{{ mikrotik_backup_stat.stat.size }}"
     mikrotik_backup_checksum_sha256: "{{ mikrotik_backup_checksum.stat.checksum | default('') }}"
   when: mikrotik_backup_status not in ['integrity_failed', 'backup_failed', 'unreachable']

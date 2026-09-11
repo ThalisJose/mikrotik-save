@@ -1,0 +1,88 @@
+- name: "{{ inventory_hostname }} :: baixar backup binário (.backup) via SSH/SFTP"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ role_path }}/../../scripts/routeros_binary_backup.py"
+      - --host
+      - "{{ ansible_host }}"
+      - --port
+      - "{{ ansible_port | default(22) }}"
+      - --user
+      - "{{ ansible_user }}"
+      - --output
+      - "{{ mikrotik_backup_dir }}/.tmp-{{ mikrotik_backup_timestamp }}.backup"
+      - --timeout
+      - "{{ binary_backup_timeout_seconds }}"
+      - "{{ '--password' if mikrotik_backup_password | default('') else omit }}"
+      - "{{ mikrotik_backup_password if mikrotik_backup_password | default('') else omit }}"
+  delegate_to: localhost
+  register: mikrotik_binary_result
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  environment:
+    MIKROTIK_SSH_PASSWORD: "{{ ansible_password }}"
+
+- name: "{{ inventory_hostname }} :: definir caminho temporário do backup binário"
+  ansible.builtin.set_fact:
+    mikrotik_binary_tmp_file: "{{ mikrotik_backup_dir }}/.tmp-{{ mikrotik_backup_timestamp }}.backup"
+
+- name: "{{ inventory_hostname }} :: marcar falha do backup binário"
+  ansible.builtin.set_fact:
+    mikrotik_backup_status: binary_backup_failed
+    mikrotik_backup_error: "{{ mikrotik_binary_result.stderr | default(mikrotik_binary_result.msg) | default('Falha ao salvar/baixar backup binário via SSH/SFTP') }}"
+  when: mikrotik_binary_result is failed
+
+- name: "{{ inventory_hostname }} :: checksum do backup binário anterior (latest.backup)"
+  ansible.builtin.stat:
+    path: "{{ mikrotik_backup_dir }}/latest.backup"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  register: mikrotik_previous_binary
+  when: mikrotik_backup_status != 'binary_backup_failed'
+
+- name: "{{ inventory_hostname }} :: checksum do backup binário novo"
+  ansible.builtin.stat:
+    path: "{{ mikrotik_binary_tmp_file }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  register: mikrotik_new_binary
+  when: mikrotik_backup_status != 'binary_backup_failed'
+
+- name: "{{ inventory_hostname }} :: comparar backup binário com o anterior"
+  ansible.builtin.set_fact:
+    mikrotik_binary_changed: "{{ (not mikrotik_previous_binary.stat.exists) or (mikrotik_previous_binary.stat.checksum != mikrotik_new_binary.stat.checksum) }}"
+  when: mikrotik_backup_status != 'binary_backup_failed'
+
+- name: "{{ inventory_hostname }} :: gravar snapshot binário datado (mudou)"
+  ansible.builtin.copy:
+    src: "{{ mikrotik_binary_tmp_file }}"
+    dest: "{{ mikrotik_backup_dir }}/{{ mikrotik_backup_timestamp }}.backup"
+    remote_src: true
+    mode: "0644"
+  delegate_to: localhost
+  when:
+    - mikrotik_backup_status != 'binary_backup_failed'
+    - mikrotik_binary_changed
+
+- name: "{{ inventory_hostname }} :: promover backup binário para 'latest.backup'"
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ mikrotik_binary_tmp_file }}"
+      - "{{ mikrotik_backup_dir }}/latest.backup"
+  delegate_to: localhost
+  changed_when: true
+  when: mikrotik_backup_status != 'binary_backup_failed'
+
+- name: "{{ inventory_hostname }} :: limpar temporário (falha no meio do caminho)"
+  ansible.builtin.file:
+    path: "{{ mikrotik_binary_tmp_file }}"
+    state: absent
+  delegate_to: localhost
+  when: mikrotik_backup_status == 'binary_backup_failed'
+
+- name: "{{ inventory_hostname }} :: registrar caminho do backup binário"
+  ansible.builtin.set_fact:
+    mikrotik_binary_file: "{{ mikrotik_backup_dir }}/latest.backup"
+  when: mikrotik_backup_status != 'binary_backup_failed'

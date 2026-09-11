@@ -5,6 +5,9 @@
     mikrotik_backup_file: ""
     mikrotik_backup_bytes: 0
     mikrotik_backup_changed: false
+    mikrotik_binary_file: ""
+    mikrotik_binary_bytes: 0
+    mikrotik_binary_changed: false
 
 - name: "{{ inventory_hostname }} :: registrar no grupo desta rodada"
   ansible.builtin.add_host:
@@ -14,10 +17,18 @@
 - name: "{{ inventory_hostname }} :: teste de conectividade"
   ansible.builtin.include_tasks: connectivity_check.yml
 
-- name: "{{ inventory_hostname }} :: extração do backup"
+- name: "{{ inventory_hostname }} :: extração do backup (export .rsc)"
   ansible.builtin.include_tasks: extract_backup.yml
   when: mikrotik_backup_status != 'unreachable'
 
-- name: "{{ inventory_hostname }} :: checagem de integridade"
+- name: "{{ inventory_hostname }} :: checagem de integridade (export .rsc)"
   ansible.builtin.include_tasks: integrity_check.yml
   when: mikrotik_backup_status not in ['unreachable', 'backup_failed']
+
+- name: "{{ inventory_hostname }} :: extração do backup binário (.backup)"
+  ansible.builtin.include_tasks: extract_binary_backup.yml
+  when: mikrotik_backup_status not in ['unreachable', 'backup_failed', 'integrity_failed']
+
+- name: "{{ inventory_hostname }} :: checagem de integridade (backup binário)"
+  ansible.builtin.include_tasks: integrity_check_binary.yml
+  when: mikrotik_backup_status not in ['unreachable', 'backup_failed', 'integrity_failed', 'binary_backup_failed']

@@ -18,8 +18,11 @@ TOTAL=$(jq -r '.summary.total' "$LOG_FILE")
 SUCCESS=$(jq -r '.summary.success' "$LOG_FILE")
 BACKUP_FAILED=$(jq -r '.summary.backup_failed' "$LOG_FILE")
 INTEGRITY_FAILED=$(jq -r '.summary.integrity_failed' "$LOG_FILE")
+BINARY_BACKUP_FAILED=$(jq -r '.summary.binary_backup_failed // 0' "$LOG_FILE")
+BINARY_INTEGRITY_FAILED=$(jq -r '.summary.binary_integrity_failed // 0' "$LOG_FILE")
 UNREACHABLE=$(jq -r '.summary.unreachable' "$LOG_FILE")
 CHANGED_COUNT=$(jq -r '.summary.changed_count' "$LOG_FILE")
+BINARY_CHANGED_COUNT=$(jq -r '.summary.binary_changed_count // 0' "$LOG_FILE")
 GIT_COMMITTED=$(jq -r '.summary.git_committed // false' "$LOG_FILE")
 GIT_SHA=$(jq -r '.summary.git_commit_sha // "-"' "$LOG_FILE")
 GIT_URL=$(jq -r '.summary.git_commit_url // ""' "$LOG_FILE")
@@ -29,11 +32,14 @@ PRUNED=$(jq -r '.summary.pruned_snapshots // 0' "$LOG_FILE")
 CHANGED_LINES=$(jq -r '.summary.changed_devices[]? | "- " + . + " (backups/" + . + "/latest.rsc)"' "$LOG_FILE")
 [ -z "$CHANGED_LINES" ] && CHANGED_LINES="  nenhum"
 
+BINARY_CHANGED_LINES=$(jq -r '.summary.binary_changed_devices[]? | "- " + . + " (backups/" + . + "/latest.backup)"' "$LOG_FILE")
+[ -z "$BINARY_CHANGED_LINES" ] && BINARY_CHANGED_LINES="  nenhum"
+
 FAILED_LINES=$(jq -r '.hosts[] | select(.status != "success") | "- " + .host + ": " + .status + " (" + .error + ")"' "$LOG_FILE")
 [ -z "$FAILED_LINES" ] && FAILED_LINES="  nenhum"
 
 STATUS_LABEL="OK"
-if [ "$BACKUP_FAILED" != "0" ] || [ "$INTEGRITY_FAILED" != "0" ] || [ "$UNREACHABLE" != "0" ]; then
+if [ "$BACKUP_FAILED" != "0" ] || [ "$INTEGRITY_FAILED" != "0" ] || [ "$BINARY_BACKUP_FAILED" != "0" ] || [ "$BINARY_INTEGRITY_FAILED" != "0" ] || [ "$UNREACHABLE" != "0" ]; then
   STATUS_LABEL="ATENÇÃO"
 fi
 
@@ -53,6 +59,8 @@ trap 'rm -f "$MSG_FILE"' EXIT
   echo "Sucesso: ${SUCCESS}"
   echo "Falha no backup: ${BACKUP_FAILED}"
   echo "Falha de integridade: ${INTEGRITY_FAILED}"
+  echo "Falha no backup binário: ${BINARY_BACKUP_FAILED}"
+  echo "Falha de integridade do backup binário: ${BINARY_INTEGRITY_FAILED}"
   echo "Inacessíveis: ${UNREACHABLE}"
   echo
   echo "Commit no git: ${GIT_COMMITTED} (sha=${GIT_SHA}, push=${GIT_PUSHED})"
@@ -61,8 +69,11 @@ trap 'rm -f "$MSG_FILE"' EXIT
   fi
   echo "Snapshots antigos podados (retenção): ${PRUNED}"
   echo
-  echo "Dispositivos com configuração alterada nesta rodada (${CHANGED_COUNT}):"
+  echo "Dispositivos com configuração (.rsc) alterada nesta rodada (${CHANGED_COUNT}):"
   echo "${CHANGED_LINES}"
+  echo
+  echo "Dispositivos com backup binário (.backup) alterado nesta rodada (${BINARY_CHANGED_COUNT}):"
+  echo "${BINARY_CHANGED_LINES}"
   echo
   echo "Hosts com problema:"
   echo "${FAILED_LINES}"
