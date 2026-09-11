@@ -9,6 +9,7 @@ TARGET="${TARGET:-all}"
 BATCH_SIZE="${BACKUP_BATCH_SIZE:-10}"
 BATCH_PAUSE_SECONDS="${BACKUP_BATCH_PAUSE_SECONDS:-5}"
 CACHE_FILE="cache/last_netbox_inventory.yml"
+CACHE_FILE_TMP="cache/last_netbox_inventory.tmp.yml"
 CACHE_META="cache/last_netbox_inventory.meta"
 CACHE_MAX_AGE_DAYS="${NETBOX_CACHE_MAX_AGE_DAYS:-7}"
 
@@ -50,20 +51,20 @@ else
 
   INVENTORY_OK=0
   if [ "$NETBOX_UP" = "1" ]; then
-    if ansible-inventory -i inventory/netbox.yml --list --yaml > "${CACHE_FILE}.tmp" 2>cache/last_netbox_error.log \
-       && ansible-inventory -i "${CACHE_FILE}.tmp" --list 2>/dev/null | jq -e '._meta.hostvars | length > 0' > /dev/null 2>&1; then
+    if ansible-inventory -i inventory/netbox.yml --list --yaml > "${CACHE_FILE_TMP}" 2>cache/last_netbox_error.log \
+       && ansible-inventory -i "${CACHE_FILE_TMP}" --list 2>>cache/last_netbox_error.log | jq -e '._meta.hostvars | length > 0' > /dev/null 2>&1; then
       INVENTORY_OK=1
     fi
   fi
 
   if [ "$INVENTORY_OK" = "1" ]; then
-    mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+    mv "${CACHE_FILE_TMP}" "$CACHE_FILE"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$CACHE_META"
     echo "[inventário] NetBox OK, cache atualizado em ${CACHE_META}"
     INVENTORY_ARG="inventory/netbox.yml"
     export INVENTORY_MODE="netbox"
   else
-    rm -f "${CACHE_FILE}.tmp"
+    rm -f "${CACHE_FILE_TMP}"
     if [ "$NETBOX_UP" = "1" ]; then
       echo "[AVISO] NetBox respondeu, mas o inventário veio vazio/inválido (ver cache/last_netbox_error.log e o filtro em inventory/netbox.yml)." >&2
     else
