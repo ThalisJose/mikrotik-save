@@ -7,13 +7,13 @@ local se o NetBox cair.
 
 ## Dois repositórios distintos
 
-- **Código** (este repositório) — Ansible, Docker, scripts. Ex.: `mikrotik-save`.
+- **Código** (este repositório) — Ansible, Docker, scripts.
 - **Dados/backups** — repositório separado, só com `backups/<host>/` e `logs/<run_id>.json`.
-  Ex.: `save-mikrotik`. Clonado localmente ao lado deste projeto, ex.: `../mikrotik-data`.
+  Clonado localmente ao lado deste projeto (padrão `../mikrotik-data`).
 
 ```
-../mikrotik/            <- este repo (código)
-../mikrotik-data/       <- repo de dados (backups + logs), clone separado
+mikrotik-save/          <- este repo (código)
+mikrotik-data/           <- repo de dados (backups + logs), clone separado
 ```
 
 O container monta o repositório de dados inteiro (com `.git`) em `/app/data`,
@@ -22,14 +22,18 @@ e faz commit + push **nele**, nunca no repositório de código.
 ## Estrutura (código)
 
 ```
-inventory/netbox.yml        inventário dinâmico (produção)
-inventory/local/hosts.yml   inventário estático (teste local, sem NetBox)
-inventory/group_vars/all.yml variáveis padrão (batch, timeouts, thresholds, retenção)
-roles/mikrotik_backup/      conectividade -> extração (com dedup) -> integridade
-playbooks/backup.yml        play em lotes + play de agregação/commit/notificação
-scripts/run_backup.sh       orquestra inventário (netbox/local/cache) + chama o playbook
-scripts/git_commit.sh       poda + commit único ao final da rodada, com push
-scripts/notify.sh           notificação por e-mail (SMTP via curl) com o resumo da rodada
+inventory/netbox.yml            inventário dinâmico (produção)
+inventory/local/hosts.yml       inventário estático (teste local, sem NetBox)
+inventory/group_vars/mikrotik.yml credenciais SSH compartilhadas dos Mikrotiks
+inventory/group_vars/all.yml    variáveis padrão (batch, timeouts, thresholds, retenção)
+inventory/host_vars/<host>.yml  overrides por device (ex.: porta SSH não padrão)
+roles/mikrotik_backup/          conectividade -> extração (com dedup) -> integridade
+scripts/routeros_export.py      exporta a config via SSH (paramiko, sem PTY)
+playbooks/backup.yml            play em lotes + play de agregação/commit/notificação
+scripts/run_backup.sh           orquestra inventário (netbox/local/cache) + chama o playbook
+scripts/git_commit.sh           poda + commit único ao final da rodada, com push
+scripts/notify.sh               notificação por e-mail (SMTP via curl) com o resumo da rodada
+scripts/entrypoint.sh           setup de git/SSH e agendamento via cron
 ```
 
 ## Setup inicial
@@ -37,33 +41,61 @@ scripts/notify.sh           notificação por e-mail (SMTP via curl) com o resum
 ```bash
 # repositório de dados, ao lado deste projeto
 cd ..
-git clone git@github.com:<org>/save-mikrotik.git mikrotik-data
-cd mikrotik
+git clone git@<host>:<org>/mikrotik-ansible-backups.git mikrotik-data
+cd mikrotik-save
 
-git init   # se ainda não for um repositório
 cp .env.example .env
 ```
 
 Edite `.env`:
-- Produção: preencha `NETBOX_URL` e `NETBOX_TOKEN`.
+- Produção: preencha `NETBOX_URL` e `NETBOX_TOKEN`. Aceita token clássico
+  (sem ponto) ou token "scoped" do NetBox 4.x (formato `key.secret`, com
+  ponto) — o cabeçalho `Token`/`Bearer` é detectado automaticamente pela
+  presença de `.` no valor.
 - Teste local (sem NetBox): preencha `MIKROTIK_TEST_HOST`, `MIKROTIK_TEST_USER`,
   `MIKROTIK_TEST_PASSWORD` do seu Mikrotik de laboratório e defina `INVENTORY_MODE=local`.
+- `MIKROTIK_SSH_USER` / `MIKROTIK_SSH_PASSWORD` / `MIKROTIK_SSH_PORT`: credencial
+  SSH compartilhada por todos os Mikrotiks do NetBox (`inventory/group_vars/mikrotik.yml`).
+  Para um device com credencial ou porta diferente, crie
+  `inventory/host_vars/<nome-exato-no-netbox>.yml` sobrescrevendo só o que precisar
+  (ex.: `ansible_port: 1022`).
 - `BACKUPS_REPO_HOST_DIR`: caminho, no host, do clone do repositório de dados
   (padrão `../mikrotik-data`).
 - `RETENTION_DAYS`: dias de retenção dos snapshots datados (padrão 90).
-- `NOTIFY_SMTP_*`: credenciais SMTP para notificação por e-mail (deixe
-  `NOTIFY_SMTP_URL` vazio para desativar).
+- `CRON_SCHEDULE`: horário do backup agendado (padrão `0 23 * * *`).
+- `NOTIFY_ENABLED`: `false` desliga o e-mail completamente, mesmo com SMTP
+  configurado (útil enquanto o SMTP de produção ainda não existe).
+- `NOTIFY_SMTP_*`: credenciais SMTP para notificação por e-mail.
 
 No NetBox, ajuste o filtro em `inventory/netbox.yml` (`query_filters`) para bater
-com como seus Mikrotiks estão modelados (hoje assume `manufacturer: mikrotik`).
+com como seus Mikrotiks estão modelados (hoje assume `manufacturer: mikrotik` +
+`role: router`, agrupados em `mikrotik`).
+
+## Extração via SSH (sem PTY)
+
+O RouterOS quebra linhas do `/export` de acordo com a largura do terminal quando
+a conexão usa PTY (comportamento padrão de `network_cli`/`community.routeros`),
+corrompendo o backup. Por isso a extração roda via `scripts/routeros_export.py`
+(paramiko, `exec_command` sem PTY), disparado do controller (`delegate_to:
+localhost`) — o RouterOS não roda Python, então módulos Ansible comuns não
+funcionam nele diretamente.
 
 ## Push do container para o repositório de dados
 
-O container usa **ssh-agent forwarding** do host para autenticar o `git push`
-(sem copiar chave privada para a imagem). No Docker Desktop para Mac, o
-`docker-compose.yml` já monta `/run/host-services/ssh-auth.sock`; garanta que
-sua chave está no agente do host (`ssh-add -l`). Em produção (Linux), monte
-`$SSH_AUTH_SOCK` do host da mesma forma.
+Duas opções, configuráveis no `.env` (escolha uma):
+
+- **ssh-agent do host** (bom para dev local, ex. Docker Desktop no Mac): defina
+  `SSH_AUTH_SOCK_HOST_PATH` (no Mac, `/run/host-services/ssh-auth.sock`) e
+  garanta que sua chave está no agente do host (`ssh-add -l`).
+- **Deploy key dedicada** (recomendado em produção/Linux): gere um par de
+  chaves só para esta automação, cadastre a pública como Deploy Key **com
+  permissão de escrita** no projeto do repositório de dados, e aponte
+  `SSH_DEPLOY_KEY_HOST_PATH` para o arquivo da chave privada no host
+  (permissão 600). Descomente `GIT_SSH_COMMAND` no `.env`.
+
+Em ambos os casos, ajuste `GIT_KNOWN_HOSTS` para o host do seu servidor git
+(ex.: `gitlab.exemplo.com`) — o `entrypoint.sh` roda `ssh-keyscan` nele para
+evitar "Host key verification failed".
 
 ## Build
 
@@ -78,7 +110,7 @@ docker compose run --rm -e INVENTORY_MODE=local -e TARGET=mikrotik-lab mikrotik-
 ```
 
 Em produção, `TARGET` deve ser o hostname exatamente como aparece no inventário
-gerado pelo NetBox (`ansible-inventory -i inventory/netbox.yml --list` para conferir).
+gerado pelo NetBox (`ansible-inventory -i inventory/netbox.yml --graph` para conferir).
 
 ## Rodar backup manual — todos os hosts
 
@@ -104,7 +136,8 @@ gerado no início do container, já que `cron` não herda `.env` automaticamente
 
 ## Como funciona o fallback de NetBox
 
-1. `run_backup.sh` checa `${NETBOX_URL}/api/status/` via HTTP.
+1. `run_backup.sh` checa `${NETBOX_URL}/api/status/` via HTTP (com o mesmo
+   header de autenticação usado pelo inventário).
 2. Se OK: gera o inventário (`ansible-inventory --list --yaml`) e valida que
    não veio vazio; salva em `cache/last_netbox_inventory.yml` e roda normalmente.
 3. Se o NetBox estiver fora do ar (ou responder mas o inventário vier vazio):
@@ -119,9 +152,9 @@ Em `INVENTORY_MODE=local`, o NetBox nunca é consultado — usa direto
 ## Dedup e retenção
 
 - A cada rodada, o export é comparado ao `latest.rsc` anterior daquele
-  equipamento. Só é criado um snapshot datado (`backups/<host>/<timestamp>.rsc`)
-  quando o conteúdo realmente muda — evita duplicar arquivo idêntico todos os
-  dias para os 130+ equipamentos.
+  equipamento (ignorando a 1ª linha, o timestamp do `/export`, que muda
+  sempre e não é uma mudança de configuração real). Só é criado um snapshot
+  datado (`backups/<host>/<timestamp>.rsc`) quando o conteúdo realmente muda.
 - `latest.rsc` é sempre atualizado; seu histórico no git já é a fonte de
   verdade de "o que mudou e quando" (`git log -p -- backups/<host>/latest.rsc`).
 - Snapshots datados com mais de `RETENTION_DAYS` dias (padrão 90) são removidos
@@ -135,9 +168,10 @@ Em `INVENTORY_MODE=local`, o NetBox nunca é consultado — usa direto
   quais tiveram configuração alterada, e um resumo agregado.
 - Ao final da rodada inteira, `scripts/git_commit.sh` poda snapshots antigos,
   faz **um único commit** (backups + log) e `git push` no repositório de dados.
-- Em seguida, `scripts/notify.sh` envia um e-mail com o resumo: total,
-  sucesso/falha/inacessíveis, se o commit/push foi feito, e a lista de
-  dispositivos com configuração alterada (com o caminho do arquivo).
+- `scripts/notify.sh` envia um e-mail com o resumo: total, sucesso/falha/
+  inacessíveis, diff normalizado por device alterado, link direto para o
+  commit (calculado a partir da URL do remote, SSH ou HTTPS) e se o
+  push foi feito. `NOTIFY_ENABLED=false` desativa o envio por completo.
 
 ## Execução em lotes
 
@@ -156,9 +190,9 @@ git show <commit>:backups/<hostname>/latest.rsc > restaurado.rsc
 
 ## Pendências para produção
 
-- Confirmar no NetBox o critério real de filtro dos Mikrotiks (`inventory/netbox.yml`).
-- Definir onde ficam as credenciais SSH por device (vault indexado por host,
-  ou custom field no NetBox) — hoje o repositório não traz isso pronto.
-- Configurar `NOTIFY_SMTP_*` com as credenciais reais do SMTP do cliente.
-- Garantir ssh-agent (ou deploy key) disponível para o container conseguir
-  dar push no repositório de dados em produção (Linux).
+- Configurar `NOTIFY_SMTP_*` com as credenciais reais do SMTP do cliente e
+  ligar `NOTIFY_ENABLED=true`.
+- Validar o backup contra todos os devices reais (`TARGET=all`) após a
+  validação em um device único.
+- Confirmar/documentar credenciais por device fora do padrão (além dos
+  `host_vars` de porta) caso surjam mais casos como esse.
