@@ -31,6 +31,7 @@
     ansible_port: 22
   when:
     - mikrotik_connectivity_fallback is defined
+    - mikrotik_connectivity_fallback is not skipped
     - mikrotik_connectivity_fallback is succeeded
 
 - name: "{{ inventory_hostname }} :: marcar como inacessível"
@@ -38,7 +39,7 @@
     mikrotik_backup_status: unreachable
     mikrotik_backup_error: >-
       Porta {{ mikrotik_ssh_port_primary }} não respondeu em {{ connectivity_timeout_seconds }}s{{
-      " (porta 22 alternativa também não respondeu)" if (mikrotik_connectivity_fallback is defined and mikrotik_connectivity_fallback is failed) else "" }}
+      " (porta 22 alternativa também não respondeu)" if (mikrotik_connectivity_fallback is defined and mikrotik_connectivity_fallback is not skipped and mikrotik_connectivity_fallback is failed) else "" }}
   when: >-
     mikrotik_connectivity_primary is failed
-    and not (mikrotik_connectivity_fallback is defined and mikrotik_connectivity_fallback is succeeded)
+    and not (mikrotik_connectivity_fallback is defined and mikrotik_connectivity_fallback is not skipped and mikrotik_connectivity_fallback is succeeded)

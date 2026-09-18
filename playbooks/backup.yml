@@ -47,6 +47,7 @@
       ansible.builtin.set_fact:
         run_results: "{{ run_results | default([]) + [{
           'host': item,
+          'ip': hostvars[item].ansible_host | default(''),
           'status': hostvars[item].mikrotik_backup_status | default('unknown'),
           'error': hostvars[item].mikrotik_backup_error | default(''),
           'file': hostvars[item].mikrotik_backup_file | default(''),

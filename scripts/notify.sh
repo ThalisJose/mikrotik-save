@@ -25,7 +25,7 @@ CHANGED_LINES=$(jq -r '.summary.changed_devices[]? | "- " + . + " (backups/" + .
 BINARY_CHANGED_LINES=$(jq -r '.summary.binary_changed_devices[]? | "- " + . + " (backups/" + . + "/latest.backup)"' "$LOG_FILE")
 [ -z "$BINARY_CHANGED_LINES" ] && BINARY_CHANGED_LINES="  nenhum"
 
-FAILED_LINES=$(jq -r '.hosts[] | select(.status != "success") | "- " + .host + ": " + .status + " (" + .error + ")"' "$LOG_FILE")
+FAILED_LINES=$(jq -r '.hosts[] | select(.status != "success") | "- " + .host + " [" + (.ip // "sem IP") + "]: " + .status + " (" + .error + ")"' "$LOG_FILE")
 [ -z "$FAILED_LINES" ] && FAILED_LINES="  nenhum"
 
 STATUS_LABEL="OK"
