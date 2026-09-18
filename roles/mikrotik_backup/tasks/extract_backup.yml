@@ -1,3 +1,19 @@
+# Este arquivo só é incluído (via main.yml) para os hosts que já passaram na
+# conectividade, então ansible_play_batch aqui ainda é o lote inteiro
+# original - filtra pra mostrar só quem realmente está sendo extraído agora.
+- name: "{{ inventory_hostname }} :: extraindo backup deste lote agora"
+  ansible.builtin.debug:
+    msg: >-
+      {%- set active = [] -%}
+      {%- for h in ansible_play_batch -%}
+        {%- if hostvars[h].mikrotik_backup_status != 'unreachable' -%}
+          {%- set _ = active.append(h) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      Extraindo backup agora ({{ active | length }} hosts): {{ active | join(', ') if active else 'nenhum' }}
+  run_once: true
+  changed_when: true
+
 - name: "{{ inventory_hostname }} :: definir caminhos de saída"
   ansible.builtin.set_fact:
     mikrotik_backup_dir: "{{ backup_root_dir }}/{{ inventory_hostname }}"

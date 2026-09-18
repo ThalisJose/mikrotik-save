@@ -43,3 +43,25 @@
   when: >-
     mikrotik_connectivity_primary is failed
     and not (mikrotik_connectivity_fallback is defined and mikrotik_connectivity_fallback is not skipped and mikrotik_connectivity_fallback is succeeded)
+
+# Uma linha só por lote, em vez do "ok"/"skipping" por host e por task que o
+# Ansible mostraria por padrão - lista quem conectou e quem não conectou (e
+# por quê) neste lote específico.
+- name: "{{ inventory_hostname }} :: resumo de conectividade do lote"
+  ansible.builtin.debug:
+    msg: >-
+      {%- set reached = [] -%}
+      {%- set failed = [] -%}
+      {%- for h in ansible_play_batch -%}
+        {%- if hostvars[h].mikrotik_backup_status == 'unreachable' -%}
+          {%- set _ = failed.append(h ~ ' (' ~ hostvars[h].mikrotik_backup_error ~ ')') -%}
+        {%- else -%}
+          {%- set _ = reached.append(h) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      ALCANÇADOS ({{ reached | length }}/{{ ansible_play_batch | length }}): {{ reached | join(', ') if reached else 'nenhum' }}
+      || NÃO ALCANÇADOS ({{ failed | length }}): {{ failed | join(' ; ') if failed else 'nenhum' }}
+  run_once: true
+  # debug é sempre "ok", e display_ok_hosts=False (ansible.cfg) esconderia
+  # essa mensagem também - forçamos "changed" só pra ela continuar visível.
+  changed_when: true
