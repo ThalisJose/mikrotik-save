@@ -209,6 +209,46 @@ Em `INVENTORY_MODE=local`, o NetBox nunca é consultado — usa direto
   da URL do remote, SSH ou HTTPS) e se o push foi feito. `NOTIFY_ENABLED=false`
   desativa o envio por completo.
 
+## Telemetria pro Zabbix
+
+Opcional, desligado por padrão (`ZABBIX_ENABLED=false`). Quando ligado,
+`scripts/zabbix_report.py` envia o status de backup de cada host pro Zabbix
+via protocolo trapper (implementado direto em Python, sem depender do
+binário `zabbix_sender`), ao final de toda rodada.
+
+**Mapeamento de nome**: o host no Zabbix é o nome do device no NetBox mais
+um sufixo (`ZABBIX_HOST_SUFFIX`, padrão `-INT`) — ex.: `MKT_AUR` no NetBox
+vira `MKT_AUR-INT` no Zabbix. Isso bate com o padrão de nomenclatura já
+usado pra separar monitoramento externo (`-EXT`, via cloud do Mikrotik) do
+interno (`-INT`, via SNMP/WireGuard) — o backup roda pela rede interna,
+então reporta pro lado `-INT`.
+
+**Itens enviados** (criar como *Zabbix trapper* num Template aplicado ao
+grupo de hosts `*-INT`):
+
+| Item key | Tipo | Quando é atualizado |
+|---|---|---|
+| `mikrotik.backup.status` | Texto | toda rodada (`success`, `backup_failed`, `unreachable`, etc.) |
+| `mikrotik.backup.last_run` | Numérico (timestamp Unix) | toda rodada, sucesso ou não — "quando foi a última tentativa" |
+| `mikrotik.backup.last_success` | Numérico (timestamp Unix) | só quando `status == success` — "quando foi o último backup bom" |
+| `mikrotik.backup.changed` | Numérico (0/1) | toda rodada — configuração mudou nessa rodada? |
+| `mikrotik.backup.error` | Texto | toda rodada (vazio se sucesso) |
+
+Trigger sugerido no Zabbix: `nodata(/host/mikrotik.backup.last_run,26h)=1`
+pra alertar se a automação parar de reportar (rodada agendada não rodou,
+ou o item não está mais recebendo dados).
+
+No Grafana, com o datasource Zabbix já configurado, um dashboard com
+variável `$host` (grupo `MKTS-INT`) consegue mostrar status atual, data do
+último sucesso e histórico — mesmo padrão dos outros dashboards Zabbix já
+usados no ambiente.
+
+Variáveis (`.env` ou CI/CD Variables):
+- `ZABBIX_ENABLED`: `true` pra ligar (padrão `false`).
+- `ZABBIX_SERVER`: endereço do servidor Zabbix.
+- `ZABBIX_PORT`: porta trapper, padrão `10051`.
+- `ZABBIX_HOST_SUFFIX`: padrão `-INT`.
+
 ## Execução em lotes
 
 - `BACKUP_BATCH_SIZE` (padrão 10): quantos hosts por lote (`serial` do Ansible).

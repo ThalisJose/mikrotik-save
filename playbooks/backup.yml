@@ -120,6 +120,19 @@
       ansible.builtin.debug:
         msg: "{{ notify_result.stdout_lines }}"
 
+    - name: Reportar status de backup por host para o Zabbix
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../scripts/zabbix_report.py"
+          - "{{ logs_root_dir }}/{{ run_id }}.json"
+      register: zabbix_result
+      changed_when: false
+
+    - name: Exibir resultado do envio ao Zabbix
+      ansible.builtin.debug:
+        msg: "{{ zabbix_result.stdout_lines }}"
+
     - name: Exibir resumo da rodada (JSON)
       ansible.builtin.debug:
         var: run_summary
