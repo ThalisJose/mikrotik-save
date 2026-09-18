@@ -1,14 +1,44 @@
-- name: "{{ inventory_hostname }} :: testar alcançabilidade (TCP {{ ansible_port | default(22) }})"
+- name: "{{ inventory_hostname }} :: definir porta principal a testar"
+  ansible.builtin.set_fact:
+    mikrotik_ssh_port_primary: "{{ ansible_port | default(1022) }}"
+
+- name: "{{ inventory_hostname }} :: testar alcançabilidade (TCP {{ mikrotik_ssh_port_primary }})"
   ansible.builtin.wait_for:
     host: "{{ ansible_host }}"
-    port: "{{ ansible_port | default(22) }}"
+    port: "{{ mikrotik_ssh_port_primary }}"
     timeout: "{{ connectivity_timeout_seconds }}"
   delegate_to: localhost
-  register: mikrotik_connectivity
+  register: mikrotik_connectivity_primary
   ignore_errors: true
+
+# Fallback: bastante device na frota usa 22 em vez da porta padrão 1022.
+# Só testa a 22 se a principal falhou e não era ela mesma (evita duplicar
+# o teste em hosts que já usam 22 como principal via host_vars).
+- name: "{{ inventory_hostname }} :: testar porta alternativa (TCP 22)"
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 22
+    timeout: "{{ connectivity_timeout_seconds }}"
+  delegate_to: localhost
+  register: mikrotik_connectivity_fallback
+  ignore_errors: true
+  when:
+    - mikrotik_connectivity_primary is failed
+    - mikrotik_ssh_port_primary | int != 22
+
+- name: "{{ inventory_hostname }} :: usar porta 22 (principal {{ mikrotik_ssh_port_primary }} não respondeu, mas a 22 respondeu)"
+  ansible.builtin.set_fact:
+    ansible_port: 22
+  when:
+    - mikrotik_connectivity_fallback is defined
+    - mikrotik_connectivity_fallback is succeeded
 
 - name: "{{ inventory_hostname }} :: marcar como inacessível"
   ansible.builtin.set_fact:
     mikrotik_backup_status: unreachable
-    mikrotik_backup_error: "Porta {{ ansible_port | default(22) }} não respondeu em {{ connectivity_timeout_seconds }}s"
-  when: mikrotik_connectivity is failed
+    mikrotik_backup_error: >-
+      Porta {{ mikrotik_ssh_port_primary }} não respondeu em {{ connectivity_timeout_seconds }}s{{
+      " (porta 22 alternativa também não respondeu)" if (mikrotik_connectivity_fallback is defined and mikrotik_connectivity_fallback is failed) else "" }}
+  when: >-
+    mikrotik_connectivity_primary is failed
+    and not (mikrotik_connectivity_fallback is defined and mikrotik_connectivity_fallback is succeeded)

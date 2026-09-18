@@ -3,16 +3,6 @@ set -euo pipefail
 
 LOG_FILE="$1"
 
-if [ "${NOTIFY_ENABLED:-true}" != "true" ]; then
-  echo "[notify] NOTIFY_ENABLED=false; notificação por e-mail desativada." >&2
-  exit 0
-fi
-
-if [ -z "${NOTIFY_SMTP_URL:-}" ]; then
-  echo "[notify] NOTIFY_SMTP_URL não configurado; pulando notificação por e-mail." >&2
-  exit 0
-fi
-
 RUN_ID=$(jq -r '.summary.run_id' "$LOG_FILE")
 TOTAL=$(jq -r '.summary.total' "$LOG_FILE")
 SUCCESS=$(jq -r '.summary.success' "$LOG_FILE")
@@ -45,15 +35,13 @@ fi
 
 SUBJECT="[Mikrotik Backup] ${STATUS_LABEL} - rodada ${RUN_ID} (${SUCCESS}/${TOTAL} ok)"
 
-MSG_FILE=$(mktemp)
-trap 'rm -f "$MSG_FILE"' EXIT
+# Corpo do relatório (sem cabeçalhos de e-mail) - usado tanto pro log do job
+# quanto pro corpo do e-mail, pra não duplicar a lógica de formatação.
+BODY_FILE=$(mktemp)
+trap 'rm -f "$BODY_FILE"' EXIT
 
 {
-  echo "From: ${NOTIFY_SMTP_FROM}"
-  echo "To: ${NOTIFY_SMTP_TO}"
-  echo "Subject: ${SUBJECT}"
-  echo "Content-Type: text/plain; charset=utf-8"
-  echo
+  echo "Status geral: ${STATUS_LABEL}"
   echo "Rodada: ${RUN_ID}"
   echo "Total de hosts: ${TOTAL}"
   echo "Sucesso: ${SUCCESS}"
@@ -91,6 +79,35 @@ trap 'rm -f "$MSG_FILE"' EXIT
       echo "${diff_text}"
     done < <(jq -c '.summary.diffs[]?' "$LOG_FILE")
   fi
+} > "$BODY_FILE"
+
+# Sempre imprime o relatório no stdout (aparece no log do job/pipeline),
+# independente de NOTIFY_ENABLED - assim dá pra conferir o resultado da
+# rodada direto no log, mesmo com e-mail desativado.
+echo "=================== Relatório da rodada ${RUN_ID} ==================="
+cat "$BODY_FILE"
+echo "======================================================================"
+
+if [ "${NOTIFY_ENABLED:-true}" != "true" ]; then
+  echo "[notify] NOTIFY_ENABLED=false; notificação por e-mail desativada (relatório acima)." >&2
+  exit 0
+fi
+
+if [ -z "${NOTIFY_SMTP_URL:-}" ]; then
+  echo "[notify] NOTIFY_SMTP_URL não configurado; pulando notificação por e-mail (relatório acima)." >&2
+  exit 0
+fi
+
+MSG_FILE=$(mktemp)
+trap 'rm -f "$BODY_FILE" "$MSG_FILE"' EXIT
+
+{
+  echo "From: ${NOTIFY_SMTP_FROM}"
+  echo "To: ${NOTIFY_SMTP_TO}"
+  echo "Subject: ${SUBJECT}"
+  echo "Content-Type: text/plain; charset=utf-8"
+  echo
+  cat "$BODY_FILE"
 } > "$MSG_FILE"
 
 RCPT_ARGS=()
