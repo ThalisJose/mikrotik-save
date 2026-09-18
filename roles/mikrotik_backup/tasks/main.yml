@@ -9,11 +9,6 @@
     mikrotik_binary_bytes: 0
     mikrotik_binary_changed: false
 
-- name: "{{ inventory_hostname }} :: registrar no grupo desta rodada"
-  ansible.builtin.add_host:
-    name: "{{ inventory_hostname }}"
-    groups: backup_run_targets
-
 - name: "{{ inventory_hostname }} :: teste de conectividade"
   ansible.builtin.include_tasks: connectivity_check.yml
 

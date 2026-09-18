@@ -9,6 +9,20 @@
   roles:
     - mikrotik_backup
   post_tasks:
+    # add_host/group_by rodam UMA VEZ POR LOTE (não uma vez por host) - é um
+    # comportamento documentado do Ansible, não um bug. Por isso a lista de
+    # hosts do resumo final é acumulada aqui via ansible_play_batch (a lista
+    # real do lote atual) + run_once, delegando pra localhost - isso roda
+    # exatamente uma vez por lote (sem race condition entre hosts do mesmo
+    # lote, já que só uma execução por lote escreve o fact) e ACUMULA entre
+    # lotes sucessivos (que rodam em sequência, nunca em paralelo entre si).
+    - name: Acumular hosts deste lote no resumo global da rodada
+      ansible.builtin.set_fact:
+        mikrotik_run_targets_accum: "{{ (hostvars['localhost'].mikrotik_run_targets_accum | default([])) + ansible_play_batch }}"
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
     - name: Pausa entre lotes
       ansible.builtin.pause:
         seconds: "{{ batch_pause_seconds | default(5) }}"
@@ -23,7 +37,7 @@
     - "{{ playbook_dir }}/../inventory/group_vars/all.yml"
   vars:
     run_id: "{{ ansible_date_time.iso8601_basic_short }}"
-    run_targets: "{{ groups['backup_run_targets'] | default([]) }}"
+    run_targets: "{{ hostvars['localhost'].mikrotik_run_targets_accum | default([]) }}"
   tasks:
     - name: Inicializar lista de resultados
       ansible.builtin.set_fact:
