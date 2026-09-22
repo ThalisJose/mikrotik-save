@@ -35,6 +35,14 @@ def main():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+    # Conexão isolada num try/except próprio: um timeout aqui tem uma causa
+    # bem diferente de um timeout durante o comando/SFTP logo abaixo. Se o
+    # /export (routeros_export.py) deste mesmo host funcionou segundos antes
+    # nesta MESMA rodada e ESTA conexão nova trava sem resposta, suspeite de
+    # firewall/rate-limit anti-bruteforce no RouterOS (bloqueando conexões
+    # novas do IP do runner em sequência rápida) - não de senha errada nem de
+    # timeout curto, já que "Authentication failed" falha em segundos, não
+    # nos --timeout segundos inteiros.
     try:
         client.connect(
             hostname=args.host,
@@ -47,7 +55,18 @@ def main():
             allow_agent=False,
             look_for_keys=False,
         )
+    except Exception as exc:
+        sys.stderr.write(
+            f"routeros_binary_backup: timeout/falha ao abrir conexão SSH ({exc}) - "
+            "se o export .rsc deste host funcionou segundos antes nesta mesma "
+            "rodada, suspeite de firewall/rate-limit de conexões novas no "
+            "RouterOS (ex.: regra anti-bruteforce bloqueando uma 2a conexão "
+            "SSH em sequência), não de senha incorreta\n"
+        )
+        client.close()
+        sys.exit(1)
 
+    try:
         save_cmd = f"/system backup save name={args.name}"
         if backup_password:
             save_cmd += f' password="{backup_password}"'
@@ -86,7 +105,12 @@ def main():
             sftp.close()
 
     except Exception as exc:
-        sys.stderr.write(f"routeros_binary_backup: falha ao conectar/executar: {exc}\n")
+        # Conexão já estava aberta (passou pelo try acima) - um timeout aqui é
+        # durante o comando/SFTP em si, não na abertura da conexão. Causa
+        # provável diferente: RouterOS sobrecarregado processando o comando,
+        # ou a conexão foi derrubada no meio (não confundir com o timeout de
+        # conexão, tratado separadamente acima).
+        sys.stderr.write(f"routeros_binary_backup: falha durante comando/download (conexão já estava aberta): {exc}\n")
         sys.exit(1)
     finally:
         client.close()

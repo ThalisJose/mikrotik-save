@@ -30,6 +30,13 @@ CAUSA_PATTERNS = [
     (r"not enough permissions", "permissão insuficiente no RouterOS (policy do usuário)"),
     (r"connection refused", "porta incorreta ou serviço SSH desligado"),
     (r"no route to host|network is unreachable", "rede inacessível (roteamento/firewall)"),
+    # Timeout especificamente ao ABRIR a conexão SSH (não durante um comando
+    # já conectado) - se o .rsc deste mesmo host funcionou segundos antes na
+    # mesma rodada, é forte indício de firewall/rate-limit anti-bruteforce no
+    # RouterOS bloqueando uma 2a conexão nova em sequência rápida, não senha
+    # errada nem timeout curto (ver routeros_binary_backup.py).
+    (r"falha ao abrir conexão ssh", "conexão SSH nova sem resposta (suspeita de firewall/rate-limit anti-bruteforce no RouterOS - confira se o .rsc deste host funcionou segundos antes)"),
+    (r"durante comando/download \(conexão já estava aberta\)", "timeout durante comando/SFTP já com a conexão aberta (RouterOS sobrecarregado ou conexão caiu no meio)"),
     # \b evita bater em "TIMEOUT" só porque aparece como nome de opção em
     # algum texto (ex.: usage: ... [--timeout TIMEOUT]) - exige a frase real
     # que paramiko/socket produzem numa falha de verdade.
