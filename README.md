@@ -103,6 +103,13 @@ RouterOS logo após o download (a flash do equipamento não acumula lixo).
   (`binary_backup_min_size_bytes`, padrão 200 bytes) — a MikroTik não
   documenta publicamente uma assinatura de "magic bytes" para o formato
   `.backup`, então não há validação de conteúdo além disso.
+- `BINARY_BACKUP_PRE_DELAY_SECONDS` (padrão 20s): pausa única por lote, entre
+  a conexão SSH do `.rsc` e a do `.backup`. Casos reais em produção mostraram
+  o `.backup` falhando com timeout **exatamente** no valor de
+  `binary_backup_timeout_seconds`, na abertura da conexão (não na
+  autenticação, que falha em segundos) — padrão típico de rate-limit/
+  anti-bruteforce no RouterOS bloqueando uma 2ª conexão SSH nova em sequência
+  rápida vinda do mesmo IP. `0` desativa a pausa.
 
 ## Push do container para o repositório de dados
 

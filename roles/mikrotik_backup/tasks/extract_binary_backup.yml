@@ -1,3 +1,15 @@
+# Uma pausa só, pro lote inteiro (run_once) - este arquivo só é incluído
+# pra quem já passou no .rsc, então todo mundo que chega aqui precisa da
+# mesma pausa antes de abrir uma 2a conexão SSH nova. Ver o comentário em
+# inventory/group_vars/all.yml (binary_backup_pre_delay_seconds) pro motivo.
+- name: "{{ inventory_hostname }} :: aguardar antes de abrir a 2a conexão SSH (.backup)"
+  ansible.builtin.wait_for:
+    timeout: "{{ binary_backup_pre_delay_seconds | default(20) }}"
+  delegate_to: localhost
+  run_once: true
+  changed_when: false
+  when: (binary_backup_pre_delay_seconds | default(20) | int) > 0
+
 - name: "{{ inventory_hostname }} :: baixar backup binário (.backup) via SSH/SFTP"
   ansible.builtin.command:
     argv:

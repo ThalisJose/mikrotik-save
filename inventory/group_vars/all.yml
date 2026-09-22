@@ -13,6 +13,15 @@ backup_required_markers:
 binary_backup_min_size_bytes: 200
 binary_backup_timeout_seconds: 60
 
+# Pausa (uma vez por lote, não por host) entre a conexão SSH do export .rsc
+# e a conexão SSH do backup binário. Motivada por casos reais em produção:
+# hosts com .rsc OK, minutos/segundos antes, e .backup falhando com timeout
+# EXATO no valor de binary_backup_timeout_seconds na abertura da conexão
+# (não na autenticação, que falha em segundos) - padrão típico de
+# rate-limit/anti-bruteforce no RouterOS bloqueando uma 2a conexão SSH nova
+# em sequência rápida vinda do mesmo IP. 0 desativa a pausa.
+binary_backup_pre_delay_seconds: "{{ lookup('env', 'BINARY_BACKUP_PRE_DELAY_SECONDS') | default(20, true) }}"
+
 batch_size: "{{ lookup('env', 'BACKUP_BATCH_SIZE') | default(10, true) }}"
 batch_pause_seconds: "{{ lookup('env', 'BACKUP_BATCH_PAUSE_SECONDS') | default(5, true) }}"
 
