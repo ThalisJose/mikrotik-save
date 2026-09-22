@@ -16,13 +16,24 @@ import sys
 
 # Cada item: (regex a procurar no texto do erro, rótulo humano da causa).
 # Checados em ordem - o primeiro que bater vence. Case-insensitive.
+#
+# Os dois primeiros padrões pegam erro de CHAMADA do script (argparse) -
+# ficam antes de tudo porque a mensagem de "usage:" do argparse cita o nome
+# de várias opções (ex.: "--timeout TIMEOUT") que bateriam por engano em
+# padrões mais genéricos abaixo (já aconteceu: "TIMEOUT" no usage sendo
+# classificado como timeout de conexão). Isso não é um problema do device -
+# é bug/uso incorreto do próprio script de automação.
 CAUSA_PATTERNS = [
+    (r"unrecognized arguments|^usage: ", "erro de chamada do script de automação (bug, não é problema do device - reportar)"),
     (r"authentication failed", "usuário/senha incorretos"),
     (r"auth fail", "usuário/senha incorretos"),
     (r"not enough permissions", "permissão insuficiente no RouterOS (policy do usuário)"),
     (r"connection refused", "porta incorreta ou serviço SSH desligado"),
     (r"no route to host|network is unreachable", "rede inacessível (roteamento/firewall)"),
-    (r"timeout|timed out", "sem resposta a tempo (timeout)"),
+    # \b evita bater em "TIMEOUT" só porque aparece como nome de opção em
+    # algum texto (ex.: usage: ... [--timeout TIMEOUT]) - exige a frase real
+    # que paramiko/socket produzem numa falha de verdade.
+    (r"\btimed out\b|\bread timeout\b", "sem resposta a tempo (timeout)"),
     (r"banner", "protocolo SSH incompatível (banner)"),
     (r"não apareceu no routeros a tempo", "RouterOS demorou demais pra gerar o arquivo .backup"),
     (r"ausente ou vazio|ausente ou menor", "arquivo baixado veio vazio/incompleto"),
