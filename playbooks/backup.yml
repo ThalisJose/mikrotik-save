@@ -100,6 +100,33 @@
         dest: "{{ logs_root_dir }}/{{ run_id }}.json"
         mode: "0644"
 
+    # Relatório em texto simples (não é só o JSON bruto): classifica a causa
+    # provável de cada falha (senha/usuário incorretos, porta incorreta/sem
+    # resposta, timeout, permissão insuficiente no RouterOS etc.) em vez de só
+    # repetir a exceção crua. Gerado ANTES do commit pra entrar no mesmo
+    # `git add -A backups/ logs/` do scripts/git_commit.sh, junto do .json.
+    - name: Gerar relatório humanizado da rodada
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../scripts/build_human_report.py"
+          - "{{ logs_root_dir }}/{{ run_id }}.json"
+          - "{{ logs_root_dir }}/{{ run_id }}.txt"
+      register: human_report_result
+      changed_when: true
+
+    - name: Ler relatório humanizado gerado
+      ansible.builtin.command:
+        argv:
+          - cat
+          - "{{ logs_root_dir }}/{{ run_id }}.txt"
+      register: human_report_cat
+      changed_when: false
+
+    - name: Exibir relatório humanizado no log do job
+      ansible.builtin.debug:
+        msg: "{{ human_report_cat.stdout_lines }}"
+
     - name: Executar commit e push da rodada
       ansible.builtin.command:
         argv:

@@ -210,6 +210,15 @@ vez na mesma rodada (a 1ª consulta, que gera o cache, já valida tudo).
   por host (`success`, `backup_failed`, `integrity_failed`,
   `binary_backup_failed`, `binary_integrity_failed`, `unreachable`), quais
   tiveram `.rsc` e/ou `.backup` alterado, e um resumo agregado.
+- Junto do `.json`, cada rodada também grava `logs/<run_id>.txt`
+  (`scripts/build_human_report.py`) — relatório em texto simples pra
+  depuração humana: quantos hosts foram alcançados, quantos ficaram de fora
+  e por quê, e a **causa provável** de cada falha classificada em categorias
+  (usuário/senha incorretos, porta incorreta/sem resposta, permissão
+  insuficiente no RouterOS, timeout, etc.), não só a exceção crua do
+  paramiko. Esse `.txt` também é impresso no log do job (task "Exibir
+  relatório humanizado no log do job") e versionado no repositório de dados
+  junto com o `.json` da mesma rodada.
 - Ao final da rodada inteira, `scripts/git_commit.sh` poda snapshots antigos,
   faz **um único commit** (backups + log) e `git push` no repositório de dados.
 - `scripts/notify.sh` envia um e-mail com o resumo: total, sucesso/falha
