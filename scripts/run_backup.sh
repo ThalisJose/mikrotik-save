@@ -12,6 +12,15 @@ CACHE_FILE="cache/last_netbox_inventory.yml"
 CACHE_FILE_TMP="cache/last_netbox_inventory.tmp.yml"
 CACHE_META="cache/last_netbox_inventory.meta"
 CACHE_MAX_AGE_DAYS="${NETBOX_CACHE_MAX_AGE_DAYS:-7}"
+# Cópia do inventário estático DENTRO de inventory/ (não cache/) usada só
+# nesta execução do ansible-playbook. Precisa estar em inventory/ pro Ansible
+# carregar inventory/group_vars e inventory/host_vars normalmente - se
+# apontarmos -i pra um arquivo fora dessa pasta, esses group_vars/host_vars
+# não são descobertos automaticamente (mikrotik_backup_password, ansible_port
+# etc. ficariam sem os defaults). Também evita o ansible-playbook consultar o
+# plugin do NetBox uma segunda vez (já consultamos acima pra montar o cache),
+# o que hoje gera aquele bloco de WARNING duplicado no log do job.
+RUNTIME_INVENTORY_FILE="inventory/.runtime_inventory.yml"
 
 INVENTORY_ARG=""
 
@@ -61,7 +70,8 @@ else
     mv "${CACHE_FILE_TMP}" "$CACHE_FILE"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$CACHE_META"
     echo "[inventário] NetBox OK, cache atualizado em ${CACHE_META}"
-    INVENTORY_ARG="inventory/netbox.yml"
+    cp "$CACHE_FILE" "$RUNTIME_INVENTORY_FILE"
+    INVENTORY_ARG="$RUNTIME_INVENTORY_FILE"
     export INVENTORY_MODE="netbox"
   else
     rm -f "${CACHE_FILE_TMP}"
@@ -83,7 +93,8 @@ print((datetime.datetime.utcnow() - d).days)
           echo "[AVISO] cache de inventário tem ${AGE_DAYS} dias (limite ${CACHE_MAX_AGE_DAYS}); pode estar desatualizado." >&2
         fi
       fi
-      INVENTORY_ARG="$CACHE_FILE"
+      cp "$CACHE_FILE" "$RUNTIME_INVENTORY_FILE"
+      INVENTORY_ARG="$RUNTIME_INVENTORY_FILE"
       export INVENTORY_MODE="netbox_cache_fallback"
     else
       echo "[ERRO] NetBox indisponível e nenhum cache de inventário encontrado. Abortando." >&2

@@ -23,11 +23,13 @@ def main():
     parser.add_argument("--user", required=True)
     parser.add_argument("--output", required=True, help="Caminho local para salvar o .backup baixado")
     parser.add_argument("--name", default="ansible-backup", help="Nome do arquivo no RouterOS (sem extensão)")
-    parser.add_argument("--password", default="", help="Senha de criptografia do backup (opcional)")
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
 
     ssh_password = os.environ.get("MIKROTIK_SSH_PASSWORD", "")
+    # Senha de criptografia do backup - via env, nunca em argv (argv aparece
+    # em texto puro no log do Ansible se a task falhar, mesmo sem no_log).
+    backup_password = os.environ.get("MIKROTIK_BACKUP_PASSWORD", "")
     remote_file = f"{args.name}.backup"
 
     client = paramiko.SSHClient()
@@ -47,8 +49,8 @@ def main():
         )
 
         save_cmd = f"/system backup save name={args.name}"
-        if args.password:
-            save_cmd += f' password="{args.password}"'
+        if backup_password:
+            save_cmd += f' password="{backup_password}"'
         rc, out, err = run(client, save_cmd, args.timeout)
         if rc != 0:
             sys.stderr.write(f"routeros_binary_backup: falha ao salvar backup: {err or out}\n")

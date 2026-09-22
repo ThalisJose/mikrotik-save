@@ -3,6 +3,7 @@
 *.retry
 cache/*
 !cache/.gitkeep
+inventory/.runtime_inventory.yml
 __pycache__/
 *.pyc
 .DS_Store

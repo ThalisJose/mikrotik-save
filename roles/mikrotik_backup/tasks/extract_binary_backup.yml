@@ -13,15 +13,17 @@
       - "{{ mikrotik_backup_dir }}/.tmp-{{ mikrotik_backup_timestamp }}.backup"
       - --timeout
       - "{{ binary_backup_timeout_seconds }}"
-      - "{{ '--password' if mikrotik_backup_password | default('') else omit }}"
-      - "{{ mikrotik_backup_password if mikrotik_backup_password | default('') else omit }}"
   delegate_to: localhost
   register: mikrotik_binary_result
   ignore_errors: true
   changed_when: false
-  no_log: true
+  # Sem no_log: nenhum segredo vai em argv (senhas só via environment, que o
+  # Ansible não ecoa no "invocation" de uma task que falhou) - assim o motivo
+  # real da falha (stderr/msg) continua visível pra depuração e pro relatório
+  # final, em vez de ser apagado pelo censor do no_log.
   environment:
     MIKROTIK_SSH_PASSWORD: "{{ ansible_password }}"
+    MIKROTIK_BACKUP_PASSWORD: "{{ mikrotik_backup_password | default('') }}"
 
 - name: "{{ inventory_hostname }} :: definir caminho temporário do backup binário"
   ansible.builtin.set_fact:
@@ -30,7 +32,7 @@
 - name: "{{ inventory_hostname }} :: marcar falha do backup binário"
   ansible.builtin.set_fact:
     mikrotik_backup_status: binary_backup_failed
-    mikrotik_backup_error: "{{ mikrotik_binary_result.stderr | default(mikrotik_binary_result.msg) | default('Falha ao salvar/baixar backup binário via SSH/SFTP') }}"
+    mikrotik_backup_error: "{{ (mikrotik_binary_result.stderr | default(mikrotik_binary_result.msg, true) | default('Falha ao salvar/baixar backup binário via SSH/SFTP', true)) | trim }}"
   when: mikrotik_binary_result is failed
 
 - name: "{{ inventory_hostname }} :: checksum do backup binário anterior (latest.backup)"

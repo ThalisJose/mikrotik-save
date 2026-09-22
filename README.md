@@ -173,6 +173,16 @@ gerado no início do container, já que `cron` não herda `.env` automaticamente
 Em `INVENTORY_MODE=local`, o NetBox nunca é consultado — usa direto
 `inventory/local/hosts.yml`.
 
+Nos dois casos com NetBox (OK ou fallback), o `ansible-playbook` roda contra
+uma cópia congelada do inventário (`inventory/.runtime_inventory.yml`,
+gerada a cada execução, nunca versionada) em vez de apontar direto pro
+plugin (`inventory/netbox.yml`) ou pro arquivo em `cache/`. Dois motivos:
+o Ansible só descobre `inventory/group_vars/` e `inventory/host_vars/`
+automaticamente quando o inventário passado em `-i` está dentro da pasta
+`inventory/` — apontar pra `cache/` (como o fallback fazia antes) faz esses
+group_vars não carregarem; e evita consultar o plugin do NetBox uma segunda
+vez na mesma rodada (a 1ª consulta, que gera o cache, já valida tudo).
+
 ## Dedup e retenção
 
 - A cada rodada, o export `.rsc` é comparado ao `latest.rsc` anterior daquele
@@ -208,6 +218,13 @@ Em `INVENTORY_MODE=local`, o NetBox nunca é consultado — usa direto
   só é listado como alterado), link direto para o commit (calculado a partir
   da URL do remote, SSH ou HTTPS) e se o push foi feito. `NOTIFY_ENABLED=false`
   desativa o envio por completo.
+- As tasks que fazem SSH no Mikrotik (`.rsc` e `.backup`) **não** usam
+  `no_log: true` na task inteira — isso apagaria o motivo real da falha
+  (`no_log` censura o resultado inteiro registrado, não só a senha). As
+  senhas só trafegam via `environment:` (nunca em argv), que o Ansible não
+  ecoa no "invocation" de uma task que falhou, então o campo `error` de cada
+  host no log JSON e no relatório final reflete o erro de verdade (timeout,
+  autenticação, permissão RouterOS insuficiente etc.), não um texto genérico.
 
 ## Telemetria pro Zabbix
 
